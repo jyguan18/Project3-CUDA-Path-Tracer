@@ -85,3 +85,12 @@ struct ShadeableIntersection
   glm::vec3 surfaceNormal;
   int materialId;
 };
+
+struct BVHNode {
+    glm::vec3 bboxMin;
+    glm::vec3 bboxMax;
+    int left;
+    int right;
+    int start;
+    int count;
+};
