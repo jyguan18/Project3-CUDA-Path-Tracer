@@ -38,6 +38,9 @@ __host__ __device__ inline glm::vec3 multiplyMV(glm::mat4 m, glm::vec4 v)
     return glm::vec3(m * v);
 }
 
+__host__ __device__ bool bboxIntersectionTest(const Ray& ray, const glm::vec3& bmin, const glm::vec3& bmax);
+__host__ __device__ float triangleIntersectionTest(const Ray& ray, const Geom& tri, glm::vec3& intersectionPoint, glm::vec3& normal, bool& wo);
+
 // CHECKITOUT
 /**
  * Test intersection between a ray and a transformed cube. Untransformed,

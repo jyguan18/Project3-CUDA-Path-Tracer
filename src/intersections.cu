@@ -1,5 +1,45 @@
 #include "intersections.h"
 
+__host__ __device__ bool bboxIntersectionTest(const Ray& ray, const glm::vec3& bmin, const glm::vec3& bmax) {
+    glm::vec3 invDir = 1.0f / ray.direction;
+
+    glm::vec3 t1 = (bmin - ray.origin) * invDir;
+    glm::vec3 t2 = (bmax - ray.origin) * invDir;
+
+    glm::vec3 tmin3 = glm::min(t1, t2);
+    glm::vec3 tmax3 = glm::max(t1, t2);
+
+    float tmin = fmaxf(tmin3.x, fmaxf(tmin3.y, tmin3.z));
+    float tmax = fminf(tmax3.x, fminf(tmax3.y, tmax3.z));
+
+    return tmax >= tmin && tmax > 0.0f && tmin < ray.t;
+}
+
+__host__ __device__ float triangleIntersectionTest(const Ray& ray, const Geom& tri, glm::vec3& intersectionPoint, glm::vec3& normal, bool& wo) {
+    glm::vec3 v0 = glm::vec3(tri.transform * glm::vec4(tri.vertices[0], 1.0f));
+    glm::vec3 v1 = glm::vec3(tri.transform * glm::vec4(tri.vertices[1], 1.0f));
+    glm::vec3 v2 = glm::vec3(tri.transform * glm::vec4(tri.vertices[2], 1.0f));
+
+    glm::vec3 baryCoords;
+
+    bool hit = glm::intersectRayTriangle(ray.origin, ray.direction, v0, v1, v2, baryCoords);
+
+    if (!hit) {
+        return -1; // no intersection
+    }
+
+    float t = baryCoords.x;
+    intersectionPoint = ray.origin + ray.direction * t;
+
+    normal = glm::normalize(glm::cross(v1 - v0, v2 - v0));
+
+    // check back-face hit or not
+    wo = glm::dot(ray.direction, normal) > 0.0f;
+    if (wo) normal = -normal; // flip so it's always outward-facing
+
+    return t;
+}
+
 __host__ __device__ float boxIntersectionTest(
     Geom box,
     Ray r,

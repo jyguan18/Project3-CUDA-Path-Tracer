@@ -12,13 +12,15 @@
 enum GeomType
 {
     SPHERE,
-    CUBE
+    CUBE,
+    TRIANGLE
 };
 
 struct Ray
 {
     glm::vec3 origin;
     glm::vec3 direction;
+    float t;
 };
 
 struct Geom
@@ -31,6 +33,13 @@ struct Geom
     glm::mat4 transform;
     glm::mat4 inverseTransform;
     glm::mat4 invTranspose;
+    glm::vec3 vertices[3];
+    glm::vec3 centroid() const{
+        if (type == TRIANGLE)
+            return (vertices[0] + vertices[1] + vertices[2]) / 3.0f;
+        else
+            return translation;
+    };
 };
 
 struct Material
@@ -84,13 +93,4 @@ struct ShadeableIntersection
   float t;
   glm::vec3 surfaceNormal;
   int materialId;
-};
-
-struct BVHNode {
-    glm::vec3 bboxMin;
-    glm::vec3 bboxMax;
-    int left;
-    int right;
-    int start;
-    int count;
 };
