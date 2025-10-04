@@ -11,6 +11,11 @@
 #include <string>
 #include <unordered_map>
 
+#define TINYOBJLOADER_IMPLEMENTATION
+#include "../external/tiny_obj_loader.h"
+
+#include "stb_image.h"
+
 using namespace std;
 using json = nlohmann::json;
 
@@ -28,6 +33,71 @@ Scene::Scene(string filename)
     {
         cout << "Couldn't read from " << filename << endl;
         exit(-1);
+    }
+}
+
+void Scene::loadFromOBJ(const std::string& filepath, const glm::mat4& transform, uint32_t materialId)
+{
+    tinyobj::attrib_t attrib;
+    std::vector<tinyobj::shape_t> shapes;
+    std::vector<tinyobj::material_t> materials;
+    std::string warn, err;
+
+    if (!tinyobj::LoadObj(&attrib, &shapes, &materials, &warn, &err, filepath.c_str(), nullptr, true)) {
+        throw std::runtime_error("Tinyobj failed to load " + filepath + ": " + warn + err);
+    }
+    if (!warn.empty()) {
+        std::cout << "TINYOBJ WARNING: " << warn << std::endl;
+    }
+
+    glm::mat4 inverseTransform = glm::inverse(transform);
+    glm::mat4 invTransposeTransform = glm::inverseTranspose(transform);
+
+    for (const auto& shape : shapes) {
+        size_t index_offset = 0;
+        for (size_t f = 0; f < shape.mesh.num_face_vertices.size(); f++) {
+            Geom newTriangle;
+            newTriangle.type = TRIANGLE;
+            bool hasNormals = false;
+
+            for (size_t v = 0; v < 3; v++) {
+                tinyobj::index_t idx = shape.mesh.indices[index_offset + v];
+
+                newTriangle.vertices[v] = glm::vec3(
+                    attrib.vertices[3 * idx.vertex_index + 0],
+                    attrib.vertices[3 * idx.vertex_index + 1],
+                    attrib.vertices[3 * idx.vertex_index + 2]
+                );
+
+                if (idx.normal_index >= 0) {
+                    hasNormals = true;
+                    newTriangle.normals[v] = glm::vec3(
+                        attrib.normals[3 * idx.normal_index + 0],
+                        attrib.normals[3 * idx.normal_index + 1],
+                        attrib.normals[3 * idx.normal_index + 2]
+                    );
+                }
+            }
+
+            if (!hasNormals) {
+                glm::vec3 v0 = newTriangle.vertices[0];
+                glm::vec3 v1 = newTriangle.vertices[1];
+                glm::vec3 v2 = newTriangle.vertices[2];
+                glm::vec3 faceNormal = glm::normalize(glm::cross(v1 - v0, v2 - v0));
+                newTriangle.normals[0] = faceNormal;
+                newTriangle.normals[1] = faceNormal;
+                newTriangle.normals[2] = faceNormal;
+            }
+
+            newTriangle.materialid = materialId;
+            newTriangle.transform = transform;
+            newTriangle.inverseTransform = inverseTransform;
+            newTriangle.invTranspose = invTransposeTransform;
+
+            this->geoms.push_back(newTriangle);
+
+            index_offset += 3;
+        }
     }
 }
 
@@ -88,27 +158,45 @@ void Scene::loadFromJSON(const std::string& jsonName)
     {
         const auto& type = p["TYPE"];
         Geom newGeom;
-        if (type == "cube")
-        {
-            newGeom.type = CUBE;
-        }
-        else
-        {
-            newGeom.type = SPHERE;
-        }
-        newGeom.materialid = MatNameToID[p["MATERIAL"]];
+
+        auto materialId = MatNameToID[p["MATERIAL"]];
         const auto& trans = p["TRANS"];
         const auto& rotat = p["ROTAT"];
         const auto& scale = p["SCALE"];
-        newGeom.translation = glm::vec3(trans[0], trans[1], trans[2]);
-        newGeom.rotation = glm::vec3(rotat[0], rotat[1], rotat[2]);
-        newGeom.scale = glm::vec3(scale[0], scale[1], scale[2]);
-        newGeom.transform = utilityCore::buildTransformationMatrix(
-            newGeom.translation, newGeom.rotation, newGeom.scale);
-        newGeom.inverseTransform = glm::inverse(newGeom.transform);
-        newGeom.invTranspose = glm::inverseTranspose(newGeom.transform);
 
-        geoms.push_back(newGeom);
+        glm::mat4 objectTransform = utilityCore::buildTransformationMatrix(
+            glm::vec3(trans[0], trans[1], trans[2]),
+            glm::vec3(rotat[0], rotat[1], rotat[2]),
+            glm::vec3(scale[0], scale[1], scale[2])
+        );
+        glm::mat4 inverseObjectTransform = glm::inverse(objectTransform);
+        glm::mat4 invTransposeObjectTransform = glm::inverseTranspose(objectTransform);
+
+
+        
+        if (type == "mesh")
+        {
+            const std::string& filepath = p["FILEPATH"];
+
+            loadFromOBJ(filepath, objectTransform, materialId);
+        }
+        else {
+            if (type == "cube")
+            {
+                newGeom.type = CUBE;
+            }
+            else if (type == "sphere")
+            {
+                newGeom.type = SPHERE;
+            }
+
+            newGeom.materialid = materialId;
+            newGeom.transform = objectTransform;
+            newGeom.inverseTransform = inverseObjectTransform;
+            newGeom.invTranspose = invTransposeObjectTransform;
+
+            geoms.push_back(newGeom);
+        }
     }
     const auto& cameraData = data["Camera"];
     Camera& camera = state.camera;

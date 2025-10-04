@@ -34,6 +34,8 @@ struct Geom
     glm::mat4 inverseTransform;
     glm::mat4 invTranspose;
     glm::vec3 vertices[3];
+    glm::vec3 normals[3];
+    glm::vec2 uv[3];
     glm::vec3 centroid() const{
         if (type == TRIANGLE)
             return (vertices[0] + vertices[1] + vertices[2]) / 3.0f;
@@ -93,4 +95,12 @@ struct ShadeableIntersection
   float t;
   glm::vec3 surfaceNormal;
   int materialId;
+};
+
+struct Mesh {
+    std::vector<glm::vec3> vertices;
+    std::vector<glm::vec3> normals;
+    std::vector<uint32_t> indices;
+    uint32_t materialId;
+    glm::mat4 transform;
 };

@@ -40,6 +40,32 @@ __host__ __device__ float triangleIntersectionTest(const Ray& ray, const Geom& t
     return t;
 }
 
+//__host__ __device__ float meshIntersectionTest(const Ray& ray, const Mesh& mesh,
+//    glm::vec3& intersectionPoint,
+//    glm::vec3& normal, bool& wo) {
+//    float tMin = -1.0f;
+//
+//    for (size_t i = 0; i < mesh.indices.size(); i += 3) {
+//        glm::vec3 v0 = glm::vec3(mesh.transform * glm::vec4(mesh.vertices[mesh.indices[i]], 1.0f));
+//        glm::vec3 v1 = glm::vec3(mesh.transform * glm::vec4(mesh.vertices[mesh.indices[i + 1]], 1.0f));
+//        glm::vec3 v2 = glm::vec3(mesh.transform * glm::vec4(mesh.vertices[mesh.indices[i + 2]], 1.0f));
+//
+//        glm::vec3 n;
+//        glm::vec3 ip;
+//        bool backface;
+//
+//        float t = triangleIntersectionTest(ray, v0, v1, v2, ip, n, backface);
+//        if (t > 0 && (tMin < 0 || t < tMin)) {
+//            tMin = t;
+//            intersectionPoint = ip;
+//            normal = n;
+//            wo = backface;
+//        }
+//    }
+//
+//    return tMin;
+//}
+
 __host__ __device__ float boxIntersectionTest(
     Geom box,
     Ray r,
