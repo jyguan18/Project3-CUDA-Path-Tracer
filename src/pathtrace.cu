@@ -19,11 +19,10 @@
 #include "interactions.h"
 
 #define ERRORCHECK 1
-#define ENABLE_STREAM_COMPACTION true
-#define ENABLE_MATERIAL_GROUPING true
 #define SORT_MAT true
 #define COMPACT true
 #define ENABLE_BVH true
+#define RUSSIAN_ROULETTE true
 
 #define FILENAME (strrchr(__FILE__, '/') ? strrchr(__FILE__, '/') + 1 : __FILE__)
 #define checkCUDAError(msg) checkCUDAErrorFn(msg, FILENAME, __LINE__)
@@ -387,7 +386,8 @@ __global__ void shadeMaterial(
     int num_paths,
     ShadeableIntersection* shadeableIntersections,
     PathSegment* pathSegments,
-    Material* materials)
+    Material* materials,
+    int traceDepth)
 {
     int idx = blockIdx.x * blockDim.x + threadIdx.x;
     if (idx >= num_paths) return;
@@ -416,6 +416,30 @@ __global__ void shadeMaterial(
         pathSegments[idx].remainingBounces = 0;
         return;
     }
+
+#if RUSSIAN_ROULETTE
+    const int min_bounces = 3;
+    int currentDepth = traceDepth - pathSegments[idx].remainingBounces;
+
+    if (currentDepth >= min_bounces) {
+
+        glm::vec3 throughput = pathSegments[idx].color;
+        float p = fmaxf(throughput.x, fmaxf(throughput.y, throughput.z));
+
+        p = fminf(p, 0.95f);
+        if (p <= 1e-6f) {
+            pathSegments[idx].remainingBounces = 0;
+            return;
+        }
+
+        if (u01(rng) > p) {
+            pathSegments[idx].remainingBounces = 0;
+            return;
+        }
+
+        pathSegments[idx].color *= 1 / p;
+    }
+#endif
 
     glm::vec3 hitPoint = pathSegments[idx].ray.origin + intersection.t * pathSegments[idx].ray.direction;
 
@@ -556,7 +580,8 @@ void pathtrace(uchar4* pbo, int frame, int iter)
             num_paths,
             dev_intersections,
             dev_paths,
-            dev_materials
+            dev_materials,
+            traceDepth
             );
 
 #if COMPACT
