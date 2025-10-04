@@ -116,7 +116,7 @@
     },
     {
       "TYPE": "mesh",
-      "FILEPATH": "../scenes/obj/cube.obj",
+      "FILEPATH": "../scenes/obj/cow.obj",
       "MATERIAL": "diffuse_white",
       "TRANS": [0.0, 2.0, 0.0],
       "ROTAT": [0.0, 45.0, 0.0],

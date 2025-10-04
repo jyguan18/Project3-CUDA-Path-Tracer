@@ -161,7 +161,9 @@ void BVH::Subdivide(int idx, const std::vector<Geom>& geoms) {
 
 	while (i <= j) {
 		int geomIdx = orderedGeomIndices[i];
-		glm::vec3 centroid = geoms[geomIdx].centroid();
+		AABB b = boundingBox(geoms[geomIdx]);
+		glm::vec3 centroid = 0.5f * (b.min + b.max);
+
 		if (centroid[axis] < splitPos) ++i; // prim goes to left side
 		else { 
 			std::swap(orderedGeomIndices[i], orderedGeomIndices[j--]); // prim goes to right side

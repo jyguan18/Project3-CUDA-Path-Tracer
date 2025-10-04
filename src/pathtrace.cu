@@ -103,30 +103,6 @@ void pathtraceInit(Scene* scene)
     hst_scene = scene;
 
     bvh.build(scene->geoms);
-    printf("BVH nodes: %zu, orderedIndices: %zu, nodesUsed=%d\n", bvh.bvhNode.size(), bvh.orderedGeomIndices.size(), bvh.nodesUsed);
-    for (int n = 0; n < bvh.nodesUsed; ++n) {
-        auto& bn = bvh.bvhNode[n];
-        printf("node %d: start=%d count=%d left=%d right=%d bboxMin=(%f,%f,%f) bboxMax=(%f,%f,%f)\n", n, bn.start, bn.count, bn.left, bn.right, bn.bboxMin.x, bn.bboxMin.y, bn.bboxMin.z, bn.bboxMax.x, bn.bboxMax.y, bn.bboxMax.z);
-    }
-    // After building BVH and before copying:
-    for (size_t i = 0; i < bvh.orderedGeomIndices.size(); ++i) {
-        int gi = bvh.orderedGeomIndices[i];
-        if (gi < 0 || gi >= (int)scene->geoms.size()) {
-            printf("HOST BAD ordered index %zu -> %d (geoms %zu)\n", i, gi, scene->geoms.size());
-        }
-    }
-    for (int n = 0; n < bvh.nodesUsed; n++) {
-        auto& nd = bvh.bvhNode[n];
-        if (nd.count > 0) {
-            assert(nd.start >= 0 && nd.start + nd.count <= bvh.orderedGeomIndices.size());
-        }
-        else {
-            assert(nd.left >= 0 && nd.left < bvh.nodesUsed);
-            assert(nd.right >= 0 && nd.right < bvh.nodesUsed);
-        }
-    }
-
-
 
     const Camera& cam = hst_scene->state.camera;
     const int pixelcount = cam.resolution.x * cam.resolution.y;
@@ -146,7 +122,7 @@ void pathtraceInit(Scene* scene)
     cudaMemset(dev_intersections, 0, pixelcount * sizeof(ShadeableIntersection));
 
     cudaMalloc(&dev_bvhNodes, bvh.bvhNode.size() * sizeof(BVHNode));
-    cudaMemcpy(dev_bvhNodes, bvh.bvhNode.data(), bvh.bvhNode.size() * sizeof(BVHNode), cudaMemcpyHostToDevice);
+    cudaMemcpy(dev_bvhNodes, bvh.bvhNode.data(), bvh.nodesUsed * sizeof(BVHNode), cudaMemcpyHostToDevice);
 
     cudaMalloc(&dev_orderedGeomIndices, bvh.orderedGeomIndices.size() * sizeof(int));
     cudaMemcpy(dev_orderedGeomIndices, bvh.orderedGeomIndices.data(), bvh.orderedGeomIndices.size() * sizeof(int), cudaMemcpyHostToDevice);
@@ -239,7 +215,6 @@ __device__ void traverseBVH(
                     int primitiveIdx = indices[node.start + i];
 
                     Geom& geom = geoms[primitiveIdx];
-
                     if (geom.type == CUBE)
                     {
                         t = boxIntersectionTest(geom, r, tmp_intersect, tmp_normal, outside);
@@ -298,6 +273,8 @@ __device__ void traverseBVH(
         intersections[path_index].materialId = geoms[hit_geom_index].materialid;
         intersections[path_index].surfaceNormal = normal;
     }
+
+    
 }
 
 // TODO:
