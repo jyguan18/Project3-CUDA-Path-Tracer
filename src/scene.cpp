@@ -157,7 +157,6 @@ void Scene::loadFromJSON(const std::string& jsonName)
     for (const auto& p : objectsData)
     {
         const auto& type = p["TYPE"];
-        Geom newGeom;
 
         auto materialId = MatNameToID[p["MATERIAL"]];
         const auto& trans = p["TRANS"];
@@ -179,8 +178,11 @@ void Scene::loadFromJSON(const std::string& jsonName)
             const std::string& filepath = p["FILEPATH"];
 
             loadFromOBJ(filepath, objectTransform, materialId);
+            continue;
         }
         else {
+            Geom newGeom;
+
             if (type == "cube")
             {
                 newGeom.type = CUBE;

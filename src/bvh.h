@@ -3,7 +3,7 @@
 #include "intersections.h"
 #include <vector>
 #include <cuda_runtime.h>
-
+#include <algorithm>
 
 #include "glm/glm.hpp"
 

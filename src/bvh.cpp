@@ -128,7 +128,6 @@ void BVH::UpdateNodeBounds(int idx, const std::vector<Geom>& geoms) {
 	int Nidx = (int)orderedGeomIndices.size();
 	if (node.start < 0 || node.start > Nidx) return;
 	if (node.start + node.count > Nidx) {
-		// invalid assignment — clamp to available range (diagnostic)
 		node.count = std::max(0, Nidx - node.start);
 	}
 
@@ -145,55 +144,53 @@ void BVH::UpdateNodeBounds(int idx, const std::vector<Geom>& geoms) {
 void BVH::Subdivide(int idx, const std::vector<Geom>& geoms) {
 	BVHNode& node = bvhNode[idx];
 
-	if (node.count <= 2) return; // kill recursion if too small
+	if (node.count <= 2) return;
 
 	glm::vec3 extent = node.bboxMax - node.bboxMin;
-
-	// get axis with largest extent to split along
 	int axis = 0;
 	if (extent.y > extent.x) axis = 1;
 	if (extent.z > extent[axis]) axis = 2;
-	float splitPos = node.bboxMin[axis] + extent[axis] * 0.5f; // activate split at the middle of whatever axis we chose previously
 
-	// partitioning...
-	int i = node.start;
-	int j = i + node.count - 1;
+	int mid = node.start + (node.count / 2);
+	std::nth_element(
+		orderedGeomIndices.begin() + node.start, 
+		orderedGeomIndices.begin() + mid,         
+		orderedGeomIndices.begin() + node.start + node.count,
+		[&](int a_idx, int b_idx) {
+			const Geom& geomA = geoms[a_idx];
+			const Geom& geomB = geoms[b_idx];
 
-	while (i <= j) {
-		int geomIdx = orderedGeomIndices[i];
-		AABB b = boundingBox(geoms[geomIdx]);
-		glm::vec3 centroid = 0.5f * (b.min + b.max);
+			glm::vec3 centroidA = (geomA.vertices[0] + geomA.vertices[1] + geomA.vertices[2]) / 3.0f;
+			glm::vec3 centroidB = (geomB.vertices[0] + geomB.vertices[1] + geomB.vertices[2]) / 3.0f;
 
-		if (centroid[axis] < splitPos) ++i; // prim goes to left side
-		else { 
-			std::swap(orderedGeomIndices[i], orderedGeomIndices[j--]); // prim goes to right side
-		}
-	}
+			glm::vec3 worldCentroidA = glm::vec3(geomA.transform * glm::vec4(centroidA, 1.0f));
+			glm::vec3 worldCentroidB = glm::vec3(geomB.transform * glm::vec4(centroidB, 1.0f));
 
-	// stop split if one of the sides is empty
-	int leftCount = i - node.start;
-	if (leftCount == 0 || leftCount == node.count) return;
+			return worldCentroidA[axis] < worldCentroidB[axis];
+		});
 
-	// child nodes
-	int leftChild = nodesUsed++;
-	int rightChild = nodesUsed++;
+	int leftCount = mid - node.start;
+	int rightCount = node.count - leftCount;
 
-	// setup left child
-	bvhNode[leftChild].start = node.start;
-	bvhNode[leftChild].count = leftCount;
+	if (leftCount == 0 || rightCount == 0) return;
 
-	// setup right child
-	bvhNode[rightChild].start = i;
-	bvhNode[rightChild].count = node.count - leftCount;
 
-	node.left = leftChild;
-	node.right = rightChild;
+	int leftChildIdx = nodesUsed++;
+	int rightChildIdx = nodesUsed++;
+
+	bvhNode[leftChildIdx].start = node.start;
+	bvhNode[leftChildIdx].count = leftCount;
+
+	bvhNode[rightChildIdx].start = mid;
+	bvhNode[rightChildIdx].count = rightCount;
+
+	node.left = leftChildIdx;
+	node.right = rightChildIdx;
 	node.count = 0;
 
-	UpdateNodeBounds(leftChild, geoms);
-	UpdateNodeBounds(rightChild, geoms);
+	UpdateNodeBounds(leftChildIdx, geoms);
+	UpdateNodeBounds(rightChildIdx, geoms);
 
-	// recursion
-	Subdivide(leftChild, geoms);
-	Subdivide(rightChild, geoms);
+	Subdivide(leftChildIdx, geoms);
+	Subdivide(rightChildIdx, geoms);
 }
