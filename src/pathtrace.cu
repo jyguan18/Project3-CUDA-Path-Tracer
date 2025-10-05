@@ -90,6 +90,8 @@ static ShadeableIntersection* dev_intersections = NULL;
 static BVH bvh;
 static BVHNode* dev_bvhNodes = NULL;
 static int* dev_orderedGeomIndices = NULL;
+static int* dev_light_indices = NULL;
+static int hst_light_count = 0;
 // TODO: static variables for device memory, any extra info you need, etc
 // ...
 
@@ -101,6 +103,20 @@ void InitDataContainer(GuiDataContainer* imGuiData)
 void pathtraceInit(Scene* scene)
 {
     hst_scene = scene;
+
+    std::vector<int> hst_light_indices;
+    for (int i = 0; i < scene->geoms.size(); ++i) {
+        const Geom& g = scene->geoms[i];
+        const Material& m = scene->materials[g.materialid];
+        if (m.emittance > 0.0f) {
+            hst_light_indices.push_back(i);
+        }
+    }
+    hst_light_count = hst_light_indices.size();
+    if (hst_light_count > 0) {
+        cudaMalloc(&dev_light_indices, hst_light_count * sizeof(int));
+        cudaMemcpy(dev_light_indices, hst_light_indices.data(), hst_light_count * sizeof(int), cudaMemcpyHostToDevice);
+    }
 
     bvh.build(scene->geoms);
 
@@ -182,6 +198,9 @@ __global__ void generateRayFromCamera(Camera cam, int iter, int traceDepth, Path
         segment.remainingBounces = traceDepth;
     }
 }
+
+
+
 __device__ void traverseBVH(
     int path_index,
     Ray& r,
@@ -277,6 +296,17 @@ __device__ void traverseBVH(
     
 }
 
+__device__ float traceShadowRay(Ray& shadow_ray, BVHNode* nodes, int* indices, Geom* geoms)
+{
+    ShadeableIntersection shadow_isect;
+    float saved_t = shadow_ray.t;
+
+    traverseBVH(0, shadow_ray, nodes, indices, geoms, &shadow_isect);
+    if (shadow_isect.t > 0.0f && shadow_isect.t < saved_t - 1e-4f) return shadow_isect.t;
+
+    return -1.0f;
+}
+
 // TODO:
 // computeIntersections handles generating ray intersections ONLY.
 // Generating new rays is handled in your shader(s).
@@ -358,76 +388,139 @@ __global__ void computeIntersections(
     }
 }
 
+__device__ void addDirectLighting(
+    int pixel_index,
+    const glm::vec3& hitPoint,
+    const glm::vec3& normal,
+    const Material& material,
+    const glm::vec3& throughput,
+    Geom* geoms,
+    Material* materials,
+    BVHNode* nodes,
+    int* bvh_indices,
+    int* light_indices,
+    int light_count,
+    glm::vec3* image,
+    thrust::default_random_engine& rng)
+{
+    if (light_count == 0) return;
+
+    thrust::uniform_int_distribution<int> u_light(0, light_count - 1);
+    int light_geom_idx = light_indices[u_light(rng)];
+    const Geom& light = geoms[light_geom_idx];
+    const Material& light_mat = materials[light.materialid];
+
+    glm::vec3 point_on_light, light_normal;
+    float light_area = samplePointOnLight(light, hitPoint, point_on_light, light_normal, rng);
+
+    Ray shadow_ray;
+    shadow_ray.origin = hitPoint + normal * 0.001f;
+    glm::vec3 dir_to_light = point_on_light - shadow_ray.origin;
+    float dist = glm::length(dir_to_light);
+    shadow_ray.direction = dir_to_light / dist;
+    shadow_ray.t = dist - 0.001f;
+
+    float shadow_t = traceShadowRay(shadow_ray, nodes, bvh_indices, geoms);
+    if (shadow_t >= 0.0f) {
+        return;
+    }
+
+    float cos_theta_surface = glm::max(0.0f, glm::dot(normal, shadow_ray.direction));
+    float cos_theta_light = glm::max(0.0f, glm::dot(light_normal, -shadow_ray.direction));
+
+    if (cos_theta_surface <= 0.0f || cos_theta_light <= 0.0f) {
+        return;
+    }
+
+    glm::vec3 bsdf = material.color / PI;
+    float G = cos_theta_light / (dist * dist + 1e-8f);
+
+    float pdf_area = 1.0f / (light_area + 1e-8f);
+
+    glm::vec3 Le = light_mat.color * light_mat.emittance;
+
+    glm::vec3 direct = throughput * Le * bsdf * cos_theta_surface * G / pdf_area * (float)light_count;
+    float max_contribution = 10.0f;
+    direct = glm::min(direct, glm::vec3(max_contribution));
+
+    atomicAdd(&image[pixel_index].x, direct.x);
+    atomicAdd(&image[pixel_index].y, direct.y);
+    atomicAdd(&image[pixel_index].z, direct.z);
+}
+
 __global__ void shadeMaterial(
     int iter,
     int num_paths,
     ShadeableIntersection* shadeableIntersections,
     PathSegment* pathSegments,
     Material* materials,
-    int traceDepth)
+    int traceDepth,
+    glm::vec3* image,
+    Geom* geoms,
+    BVHNode* nodes,
+    int* bvh_indices,
+    int* light_indices,
+    int light_count)
 {
     int idx = blockIdx.x * blockDim.x + threadIdx.x;
     if (idx >= num_paths) return;
 
     ShadeableIntersection intersection = shadeableIntersections[idx];
-    
-    if (intersection.t <= 0.0) {
-        pathSegments[idx].color = glm::vec3(0.0f);
+    if (intersection.t <= 0.0f || pathSegments[idx].remainingBounces <= 0) {
         pathSegments[idx].remainingBounces = 0;
-        return; // hit nothing
-    }
-
-    if (pathSegments[idx].remainingBounces <= 0) {
         return;
     }
 
-    thrust::default_random_engine rng = makeSeededRandomEngine(iter, idx, pathSegments[idx].remainingBounces);
+    thrust::default_random_engine rng =
+        makeSeededRandomEngine(iter, idx, pathSegments[idx].remainingBounces);
     thrust::uniform_real_distribution<float> u01(0, 1);
 
+    glm::vec3 throughput = pathSegments[idx].color;
+    glm::vec3 hitPoint = pathSegments[idx].ray.origin + intersection.t * pathSegments[idx].ray.direction;
+    glm::vec3 normal = intersection.surfaceNormal;
     Material material = materials[intersection.materialId];
-    glm::vec3 materialColor = material.color;
 
-    // hit light
+    // Hitting a light directly
     if (material.emittance > 0.0f) {
-        pathSegments[idx].color *= (materialColor * material.emittance);
+        glm::vec3 emission = throughput * (material.color * material.emittance);
+        atomicAdd(&image[pathSegments[idx].pixelIndex].x, emission.x);
+        atomicAdd(&image[pathSegments[idx].pixelIndex].y, emission.y);
+        atomicAdd(&image[pathSegments[idx].pixelIndex].z, emission.z);
         pathSegments[idx].remainingBounces = 0;
         return;
     }
 
+    addDirectLighting(
+        pathSegments[idx].pixelIndex,
+        hitPoint, normal, material, throughput,
+        geoms, materials, nodes, bvh_indices,
+        light_indices, light_count, image, rng);
+
+    // Russian Roulette
 #if RUSSIAN_ROULETTE
     const int min_bounces = 3;
     int currentDepth = traceDepth - pathSegments[idx].remainingBounces;
 
     if (currentDepth >= min_bounces) {
-
-        glm::vec3 throughput = pathSegments[idx].color;
         float p = fmaxf(throughput.x, fmaxf(throughput.y, throughput.z));
-
         p = fminf(p, 0.95f);
-        if (p <= 1e-6f) {
+
+        if (p <= 1e-6f || u01(rng) > p) {
             pathSegments[idx].remainingBounces = 0;
             return;
         }
 
-        if (u01(rng) > p) {
-            pathSegments[idx].remainingBounces = 0;
-            return;
-        }
-
-        pathSegments[idx].color *= 1 / p;
+        pathSegments[idx].color *= 1.0f / p;
     }
 #endif
 
-    glm::vec3 hitPoint = pathSegments[idx].ray.origin + intersection.t * pathSegments[idx].ray.direction;
-
-    glm::vec3 n = intersection.surfaceNormal;
-
-    if (glm::dot(n, pathSegments[idx].ray.direction) > 0.0) {
-        n = -n;
+    // Spawn next ray
+    if (glm::dot(normal, pathSegments[idx].ray.direction) > 0.0f) {
+        normal = -normal;
     }
-
-    scatterRay(pathSegments[idx], hitPoint, n, material, rng);
+    scatterRay(pathSegments[idx], hitPoint, normal, material, rng);
 }
+
 
 // Add the current iteration's output to the overall image
 __global__ void finalGather(int nPaths, glm::vec3* image, PathSegment* iterationPaths)
@@ -455,10 +548,6 @@ struct CompareMatId {
     }
 };
 
-/**
- * Wrapper for the __global__ call that sets up the kernel calls and does a ton
- * of memory management
- */
 void pathtrace(uchar4* pbo, int frame, int iter)
 {
     const int traceDepth = hst_scene->state.traceDepth;
@@ -474,46 +563,12 @@ void pathtrace(uchar4* pbo, int frame, int iter)
     // 1D block for path tracing
     const int blockSize1d = 128;
 
-    ///////////////////////////////////////////////////////////////////////////
-
-    // Recap:
-    // * Initialize array of path rays (using rays that come out of the camera)
-    //   * You can pass the Camera object to that kernel.
-    //   * Each path ray must carry at minimum a (ray, color) pair,
-    //   * where color starts as the multiplicative identity, white = (1, 1, 1).
-    //   * This has already been done for you.
-    // * For each depth:
-    //   * Compute an intersection in the scene for each path ray.
-    //     A very naive version of this has been implemented for you, but feel
-    //     free to add more primitives and/or a better algorithm.
-    //     Currently, intersection distance is recorded as a parametric distance,
-    //     t, or a "distance along the ray." t = -1.0 indicates no intersection.
-    //     * Color is attenuated (multiplied) by reflections off of any object
-    //   * TODO: Stream compact away all of the terminated paths.
-    //     You may use either your implementation or `thrust::remove_if` or its
-    //     cousins.
-    //     * Note that you can't really use a 2D kernel launch any more - switch
-    //       to 1D.
-    //   * TODO: Shade the rays that intersected something or didn't bottom out.
-    //     That is, color the ray by performing a color computation according
-    //     to the shader, then generate a new ray to continue the ray path.
-    //     We recommend just updating the ray's PathSegment in place.
-    //     Note that this step may come before or after stream compaction,
-    //     since some shaders you write may also cause a path to terminate.
-    // * Finally, add this iteration's results to the image. This has been done
-    //   for you.
-
-    // TODO: perform one iteration of path tracing
-
     generateRayFromCamera << <blocksPerGrid2d, blockSize2d >> > (cam, iter, traceDepth, dev_paths);
     checkCUDAError("generate camera ray");
 
     int depth = 0;
     PathSegment* dev_path_end = dev_paths + pixelcount;
     int num_paths = dev_path_end - dev_paths;
-
-    // --- PathSegment Tracing Stage ---
-    // Shoot ray into scene, bounce between objects, push shading chunks
 
     bool iterationComplete = false;
 
@@ -524,7 +579,7 @@ void pathtrace(uchar4* pbo, int frame, int iter)
 
         // tracing
         dim3 numblocksPathSegmentTracing = (num_paths + blockSize1d - 1) / blockSize1d;
-        
+
         int numNodes = (int)bvh.bvhNode.size();
         int numIndices = (int)bvh.orderedGeomIndices.size();
 
@@ -542,7 +597,7 @@ void pathtrace(uchar4* pbo, int frame, int iter)
             );
         checkCUDAError("trace one bounce");
         cudaDeviceSynchronize();
-        
+
 #if SORT_MAT
         thrust::sort_by_key(
             thrust::device,
@@ -558,7 +613,13 @@ void pathtrace(uchar4* pbo, int frame, int iter)
             dev_intersections,
             dev_paths,
             dev_materials,
-            traceDepth
+            traceDepth,
+            dev_image,
+            dev_geoms,
+            dev_bvhNodes,
+            dev_orderedGeomIndices,
+            dev_light_indices,
+            hst_light_count
             );
 
 #if COMPACT
@@ -578,16 +639,8 @@ void pathtrace(uchar4* pbo, int frame, int iter)
         depth++;
     }
 
-    // Assemble this iteration and apply it to the image
-    dim3 numBlocksPixels = (pixelcount + blockSize1d - 1) / blockSize1d;
-    finalGather<<<numBlocksPixels, blockSize1d>>>(pixelcount, dev_image, dev_paths);
+    sendImageToPBO << <blocksPerGrid2d, blockSize2d >> > (pbo, cam.resolution, iter, dev_image);
 
-    ///////////////////////////////////////////////////////////////////////////
-
-    // Send results to OpenGL buffer for rendering
-    sendImageToPBO<<<blocksPerGrid2d, blockSize2d>>>(pbo, cam.resolution, iter, dev_image);
-
-    // Retrieve image from GPU
     cudaMemcpy(hst_scene->state.image.data(), dev_image,
         pixelcount * sizeof(glm::vec3), cudaMemcpyDeviceToHost);
 

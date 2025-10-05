@@ -40,6 +40,9 @@ __host__ __device__ glm::vec3 calculateRandomDirectionInHemisphere(
  *
  * You may need to change the parameter list for your purposes!
  */
+__host__ __device__ float samplePointOnLight(const Geom& light, const glm::vec3& hit_point, glm::vec3& light_point, glm::vec3& light_normal, thrust::default_random_engine& rng);
+
+
 __host__ __device__ void scatterRay(
     PathSegment& pathSegment,
     glm::vec3 intersect,
