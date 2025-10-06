@@ -212,9 +212,14 @@ void Scene::loadFromJSON(const std::string& jsonName)
         if (p.contains("USE_PROCEDURAL")) {
             newMaterial.useProceduralTexture = p["USE_PROCEDURAL"];
         }
+        
 
         MatNameToID[name] = materials.size();
         materials.emplace_back(newMaterial);
+    }
+    if (data.contains("Environment")) {
+        std::string envPath = data["Environment"]["TEXTURE"];
+        loadTexture(envPath, environmentMap, true);
     }
     const auto& objectsData = data["Objects"];
     for (const auto& p : objectsData)

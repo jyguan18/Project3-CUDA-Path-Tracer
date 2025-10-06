@@ -54,6 +54,9 @@
     "LOOKAT": [0.0, 5.0, 0.0],
     "UP": [0.0, 1.0, 0.0]
   },
+  "Environment": {
+    "TEXTURE": "../scenes/obj/environment_maps/fireplace_4k.hdr"
+  },
   "Objects": [
     {
       "TYPE": "cube",
@@ -104,6 +107,13 @@
       "TRANS": [0.0, 2.0, 0.0],
       "ROTAT": [0.0, 0.0, 0.0],
       "SCALE": [5.0, 5.0, 5.0]
+    },
+    {
+      "TYPE": "sphere",
+      "MATERIAL": "specular_white",
+      "TRANS": [-2.0, 6.0, 0.0],
+      "ROTAT": [0.0, 0.0, 0.0],
+      "SCALE": [2.0, 2.0, 2.0]
     }
   ]
 }

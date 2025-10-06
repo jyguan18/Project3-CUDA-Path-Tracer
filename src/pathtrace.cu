@@ -551,6 +551,23 @@ __device__ glm::vec3 sampleTexture(const Texture& tex, const glm::vec2& uv, glm:
     return textures[idx];
 }
 
+__device__ glm::vec3 sampleEnvironmentMap(
+    const glm::vec3& direction,
+    const Texture& envMap,
+    glm::vec3* textures)
+{
+    if (envMap.index < 0) return glm::vec3(0.0f);
+
+    float phi = atan2(direction.z, direction.x);
+    float theta = acos(glm::clamp(direction.y, -1.0f, 1.0f));
+
+    glm::vec2 uv;
+    uv.x = (phi + PI) / (2.0f * PI);
+    uv.y = theta / PI;
+
+    return sampleTexture(envMap, uv, textures);
+}
+
 __device__ glm::vec3 proceduralCheckerboard(const glm::vec2& uv, float scale) {
     float u = uv.x * scale;
     float v = uv.y * scale;
@@ -609,13 +626,28 @@ __global__ void shadeMaterial(
     int light_count,
     glm::vec3* dev_albedo,
     glm::vec3* dev_normal,
-    glm::vec3* dev_textures)
+    glm::vec3* dev_textures,
+    Texture envMap)
 {
     int idx = blockIdx.x * blockDim.x + threadIdx.x;
     if (idx >= num_paths) return;
 
     ShadeableIntersection intersection = shadeableIntersections[idx];
-    if (intersection.t <= 0.0f || pathSegments[idx].remainingBounces <= 0) {
+    if (intersection.t <= 0.0f) {
+        // add environment lighting when ray does not hit anything
+        glm::vec3 envColor = sampleEnvironmentMap(
+            pathSegments[idx].ray.direction,
+            envMap,
+            dev_textures);
+        
+        atomicAdd(&image[pathSegments[idx].pixelIndex].x, (pathSegments[idx].color * envColor).x);
+        atomicAdd(&image[pathSegments[idx].pixelIndex].y, (pathSegments[idx].color * envColor).y);
+        atomicAdd(&image[pathSegments[idx].pixelIndex].z, (pathSegments[idx].color * envColor).z);
+        pathSegments[idx].remainingBounces = 0;
+        return;
+    }
+
+    if (pathSegments[idx].remainingBounces <= 0) {
         pathSegments[idx].remainingBounces = 0;
         return;
     }
@@ -842,7 +874,8 @@ void pathtrace(uchar4* pbo, int frame, int iter)
             hst_light_count,
             dev_albedo,
             dev_normal,
-            dev_textures
+            dev_textures,
+            hst_scene->environmentMap
             );
 
 #if COMPACT

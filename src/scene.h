@@ -19,4 +19,6 @@ public:
     std::vector<Texture> textures;
     std::vector<glm::vec3> textureData;
     RenderState state;
+
+    Texture environmentMap;
 };
