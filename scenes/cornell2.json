@@ -87,11 +87,12 @@
       "SCALE": [0.01, 10.0, 10.0]
     },
     {
-      "TYPE": "sphere",
-      "MATERIAL": "glass",
-      "TRANS": [0.0, 3.0, 0.0],
-      "ROTAT": [0.0, 0.0, 0.0],
-      "SCALE": [5.0, 5.0, 5.0]
+      "TYPE": "mesh",
+      "MATERIAL": "diffuse_white",
+      "FILEPATH": "../scenes/obj/Aircraft_obj.obj",
+      "TRANS": [0.0, 0.0, 0.0],
+      "ROTAT": [0.0, 135.0, 0.0],
+      "SCALE": [2.0, 2.0, 2.0]
     }
   ]
 }

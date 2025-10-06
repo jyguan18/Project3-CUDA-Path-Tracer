@@ -69,16 +69,17 @@ __global__ void sendImageToPBO(uchar4* pbo, glm::ivec2 resolution, int iter, glm
         int index = x + (y * resolution.x);
         glm::vec3 pix = image[index];
 
-        glm::ivec3 color;
-        color.x = glm::clamp((int)(pix.x / iter * 255.0), 0, 255);
-        color.y = glm::clamp((int)(pix.y / iter * 255.0), 0, 255);
-        color.z = glm::clamp((int)(pix.z / iter * 255.0), 0, 255);
+        // avoid divide-by-zero
+        float denom = (iter > 0) ? float(iter) : 1.0f;
 
-        // Each thread writes one pixel location in the texture (textel)
+        int rx = glm::clamp((int)(pix.x / denom * 255.0f), 0, 255);
+        int gx = glm::clamp((int)(pix.y / denom * 255.0f), 0, 255);
+        int bx = glm::clamp((int)(pix.z / denom * 255.0f), 0, 255);
+
         pbo[index].w = 0;
-        pbo[index].x = color.x;
-        pbo[index].y = color.y;
-        pbo[index].z = color.z;
+        pbo[index].x = rx;
+        pbo[index].y = gx;
+        pbo[index].z = bx;
     }
 }
 
@@ -104,6 +105,7 @@ static oidn::FilterRef oidn_color_filter;
 static oidn::FilterRef oidn_albedo_filter;
 static oidn::FilterRef oidn_normal_filter;
 
+static glm::vec3* dev_textures = NULL;
 void InitDataContainer(GuiDataContainer* imGuiData)
 {
     guiData = imGuiData;
@@ -213,6 +215,13 @@ void pathtraceInit(Scene* scene)
     denoiserInit();
 #endif
 
+    if (scene->textureData.size() > 0) {  // Use textureData, not textures
+        cudaMalloc(&dev_textures, scene->textureData.size() * sizeof(glm::vec3));
+        cudaMemcpy(dev_textures, scene->textureData.data(),
+            scene->textureData.size() * sizeof(glm::vec3),
+            cudaMemcpyHostToDevice);
+    }
+
     checkCUDAError("pathtraceInit");
 }
 
@@ -233,6 +242,8 @@ void pathtraceFree()
     cudaFree(dev_oidn_image);
     // OIDN objects release themselves automatically
 #endif
+
+    cudaFree(dev_textures);
 
     checkCUDAError("pathtraceFree");
 }
@@ -310,6 +321,8 @@ __device__ void traverseBVH(
                     int primitiveIdx = indices[node.start + i];
 
                     Geom& geom = geoms[primitiveIdx];
+                    glm::vec2 tmp_uv;
+
                     if (geom.type == CUBE)
                     {
                         t = boxIntersectionTest(geom, r, tmp_intersect, tmp_normal, outside);
@@ -320,7 +333,7 @@ __device__ void traverseBVH(
                     }
                     else if (geom.type == TRIANGLE)
                     {
-                        t = triangleIntersectionTest(r, geom, tmp_intersect, tmp_normal, outside);
+                        t = triangleIntersectionTest(r, geom, tmp_intersect, tmp_normal, tmp_uv, outside);
                     }
 
                     if (t > 0.0f && t_min > t)
@@ -330,6 +343,7 @@ __device__ void traverseBVH(
                         hit_geom_index = primitiveIdx;
                         intersect_point = tmp_intersect;
                         normal = tmp_normal;
+                        intersections[path_index].uv = tmp_uv;
                     }
                 }
 
@@ -524,6 +538,64 @@ __device__ void addDirectLighting(
     atomicAdd(&image[pixel_index].z, direct.z);
 }
 
+__device__ glm::vec3 sampleTexture(const Texture& tex, const glm::vec2& uv, glm::vec3* textures) {
+    if (tex.index < 0) return glm::vec3(1.0f);
+
+    int x = glm::clamp(int(uv.x * (tex.width - 1)), 0, tex.width - 1);
+    int y = glm::clamp(int(uv.y * (tex.height - 1)), 0, tex.height - 1);
+
+    if (x < 0) x += tex.width;
+    if (y < 0) y += tex.height;
+
+    int idx = tex.startIdx + y * tex.width + x;
+    return textures[idx];
+}
+
+__device__ glm::vec3 proceduralCheckerboard(const glm::vec2& uv, float scale) {
+    float u = uv.x * scale;
+    float v = uv.y * scale;
+
+    bool checkerU = (int(floorf(u)) & 1) == 0;
+    bool checkerV = (int(floorf(v)) & 1) == 0;
+
+    return (checkerU ^ checkerV) ? glm::vec3(0.9f) : glm::vec3(0.1f);
+}
+
+__device__ glm::vec3 applyBumpMapping(
+    const glm::vec2& uv,
+    const glm::vec3& normal,
+    const Texture& bumpTex,
+    float bumpStrength,
+    glm::vec3* textures)
+{
+    if (bumpTex.index < 0) return normal;
+
+    float du = 1.0f / bumpTex.width;
+    float dv = 1.0f / bumpTex.height;
+
+    // Sample height at center and neighbors
+    glm::vec3 hC = sampleTexture(bumpTex, uv, textures);
+    glm::vec3 hR = sampleTexture(bumpTex, uv + glm::vec2(du, 0), textures);
+    glm::vec3 hU = sampleTexture(bumpTex, uv + glm::vec2(0, dv), textures);
+
+    float heightC = (hC.x + hC.y + hC.z) / 3.0f;
+    float heightR = (hR.x + hR.y + hR.z) / 3.0f;
+    float heightU = (hU.x + hU.y + hU.z) / 3.0f;
+
+    float dh_du = (heightR - heightC) * bumpStrength;
+    float dh_dv = (heightU - heightC) * bumpStrength;
+
+    // Create tangent space
+    glm::vec3 tangent = glm::normalize(glm::cross(normal, glm::vec3(0, 1, 0)));
+    if (glm::length(tangent) < 0.01f) {
+        tangent = glm::normalize(glm::cross(normal, glm::vec3(1, 0, 0)));
+    }
+    glm::vec3 bitangent = glm::cross(normal, tangent);
+
+    glm::vec3 perturbedNormal = normal - dh_du * tangent - dh_dv * bitangent;
+    return glm::normalize(perturbedNormal);
+}
+
 __global__ void shadeMaterial(
     int iter,
     int num_paths,
@@ -538,7 +610,8 @@ __global__ void shadeMaterial(
     int* light_indices,
     int light_count,
     glm::vec3* dev_albedo,
-    glm::vec3* dev_normal)
+    glm::vec3* dev_normal,
+    glm::vec3* dev_textures)
 {
     int idx = blockIdx.x * blockDim.x + threadIdx.x;
     if (idx >= num_paths) return;
@@ -557,10 +630,23 @@ __global__ void shadeMaterial(
     glm::vec3 hitPoint = pathSegments[idx].ray.origin + intersection.t * pathSegments[idx].ray.direction;
     glm::vec3 normal = intersection.surfaceNormal;
     Material material = materials[intersection.materialId];
+    glm::vec3 baseColor = material.color;
+
+    if (material.diffuseTexture.index >= 0) {
+        baseColor = sampleTexture(material.diffuseTexture, intersection.uv, dev_textures);
+    }
+    else if (material.useProceduralTexture) {
+        baseColor *= proceduralCheckerboard(intersection.uv, 8.0f);
+    }
+
+    // Apply bump mapping
+    glm::vec3 perturbedNormal = applyBumpMapping(
+        intersection.uv, normal, material.bumpTexture,
+        material.bumpStrength, dev_textures);
 
     // Hitting a light directly
     if (material.emittance > 0.0f) {
-        glm::vec3 emission = throughput * (material.color * material.emittance);
+        glm::vec3 emission = throughput * (baseColor * material.emittance);
         atomicAdd(&image[pathSegments[idx].pixelIndex].x, emission.x);
         atomicAdd(&image[pathSegments[idx].pixelIndex].y, emission.y);
         atomicAdd(&image[pathSegments[idx].pixelIndex].z, emission.z);
@@ -570,9 +656,12 @@ __global__ void shadeMaterial(
 
     bool isSpecular = (material.hasReflective > 0.5f) || (material.hasRefractive > 0.5f);
     if (!isSpecular) {
+        Material texturedMaterial = material;
+        texturedMaterial.color = baseColor;
+
         addDirectLighting(
             pathSegments[idx].pixelIndex,
-            hitPoint, normal, material, throughput,
+            hitPoint, perturbedNormal, texturedMaterial, throughput,
             geoms, materials, nodes, bvh_indices,
             light_indices, light_count, image, rng);
     }
@@ -593,8 +682,8 @@ __global__ void shadeMaterial(
         pathSegments[idx].color *= 1.0f / p;
     }
 #endif
-
-    scatterRay(pathSegments[idx], hitPoint, normal, material, rng);
+    material.color = baseColor;
+    scatterRay(pathSegments[idx], hitPoint, perturbedNormal, material, rng);
 
     dev_albedo[pathSegments[idx].pixelIndex] = pathSegments[idx].color;
     dev_normal[pathSegments[idx].pixelIndex] = intersection.surfaceNormal;
@@ -672,6 +761,14 @@ void OIDN_Denoise() {
         std::cerr << "OIDN Error: " << errorMessage << std::endl;
     }
 }
+__global__ void debug_fillBuffer_solid(glm::vec3* buffer, glm::ivec2 resolution, glm::vec3 color) {
+    int x = (blockIdx.x * blockDim.x) + threadIdx.x;
+    int y = (blockIdx.y * blockDim.y) + threadIdx.y;
+    if (x < resolution.x && y < resolution.y) {
+        int index = x + (y * resolution.x);
+        buffer[index] = color;
+    }
+}
 
 void pathtrace(uchar4* pbo, int frame, int iter)
 {
@@ -746,7 +843,8 @@ void pathtrace(uchar4* pbo, int frame, int iter)
             dev_light_indices,
             hst_light_count,
             dev_albedo,
-            dev_normal
+            dev_normal,
+            dev_textures
             );
 
 #if COMPACT

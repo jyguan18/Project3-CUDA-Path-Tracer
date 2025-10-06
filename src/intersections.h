@@ -39,7 +39,7 @@ __host__ __device__ inline glm::vec3 multiplyMV(glm::mat4 m, glm::vec4 v)
 }
 
 __host__ __device__ bool bboxIntersectionTest(const Ray& ray, const glm::vec3& bmin, const glm::vec3& bmax);
-__host__ __device__ float triangleIntersectionTest(const Ray& ray, const Geom& tri, glm::vec3& intersectionPoint, glm::vec3& normal, bool& wo);
+__host__ __device__ float triangleIntersectionTest(const Ray& ray, const Geom& tri, glm::vec3& intersectionPoint, glm::vec3& normal, glm::vec2& uv, bool& wo);
 
 // CHECKITOUT
 /**

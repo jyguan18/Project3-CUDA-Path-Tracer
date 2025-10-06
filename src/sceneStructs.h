@@ -23,6 +23,13 @@ struct Ray
     float t;
 };
 
+struct Texture {
+    int index = -1;        // -1 means no texture
+    int width = 0;
+    int height = 0;
+    int startIdx = 0;
+};
+
 struct Geom
 {
     enum GeomType type;
@@ -35,7 +42,7 @@ struct Geom
     glm::mat4 invTranspose;
     glm::vec3 vertices[3];
     glm::vec3 normals[3];
-    glm::vec2 uv[3];
+    glm::vec2 uvs[3];
     glm::vec3 centroid() const{
         if (type == TRIANGLE)
             return (vertices[0] + vertices[1] + vertices[2]) / 3.0f;
@@ -56,6 +63,11 @@ struct Material
     float hasRefractive;
     float indexOfRefraction;
     float emittance;
+
+    Texture diffuseTexture;
+    Texture bumpTexture;
+    float bumpStrength = 1.0f;
+    bool useProceduralTexture = false;
 };
 
 struct Camera
@@ -95,12 +107,7 @@ struct ShadeableIntersection
   float t;
   glm::vec3 surfaceNormal;
   int materialId;
+  glm::vec2 uv;
+  int geomIndex;
 };
 
-struct Mesh {
-    std::vector<glm::vec3> vertices;
-    std::vector<glm::vec3> normals;
-    std::vector<uint32_t> indices;
-    uint32_t materialId;
-    glm::mat4 transform;
-};

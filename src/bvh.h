@@ -55,8 +55,8 @@ public:
 
     int nodesUsed;
 private:
-    void UpdateNodeBounds(int idx, const std::vector<Geom>& geoms);
-    void Subdivide(int idx, const std::vector<Geom>& geoms);
+    void UpdateNodeBounds(int idx, const std::vector<AABB>& boxes);
+    void Subdivide(int idx, const std::vector<Geom>& geoms, const std::vector<AABB>& boxes);
 
     int rootNodeIdx;
     

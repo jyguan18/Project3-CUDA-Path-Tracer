@@ -15,56 +15,48 @@ __host__ __device__ bool bboxIntersectionTest(const Ray& ray, const glm::vec3& b
     return tmax >= tmin && tmax > 0.0f && tmin < ray.t;
 }
 
-__host__ __device__ float triangleIntersectionTest(const Ray& ray, const Geom& tri, glm::vec3& intersectionPoint, glm::vec3& normal, bool& wo) {
+__host__ __device__ float triangleIntersectionTest(
+    const Ray& ray, const Geom& tri,
+    glm::vec3& intersectionPoint,
+    glm::vec3& normal,
+    glm::vec2& uv,
+    bool& wo)
+{
     glm::vec3 v0 = glm::vec3(tri.transform * glm::vec4(tri.vertices[0], 1.0f));
     glm::vec3 v1 = glm::vec3(tri.transform * glm::vec4(tri.vertices[1], 1.0f));
     glm::vec3 v2 = glm::vec3(tri.transform * glm::vec4(tri.vertices[2], 1.0f));
 
     glm::vec3 baryCoords;
-
     bool hit = glm::intersectRayTriangle(ray.origin, ray.direction, v0, v1, v2, baryCoords);
 
     if (!hit) {
-        return -1; // no intersection
+        return -1;
     }
 
-    float t = baryCoords.x;
+    float t = baryCoords.z;
+    float u = baryCoords.x;
+    float v = baryCoords.y;
+    float w = 1.0f - u - v;
+
     intersectionPoint = ray.origin + ray.direction * t;
 
-    normal = glm::normalize(glm::cross(v1 - v0, v2 - v0));
+    glm::vec3 n0 = glm::normalize(glm::vec3(tri.invTranspose * glm::vec4(tri.normals[0], 0.0f)));
+    glm::vec3 n1 = glm::normalize(glm::vec3(tri.invTranspose * glm::vec4(tri.normals[1], 0.0f)));
+    glm::vec3 n2 = glm::normalize(glm::vec3(tri.invTranspose * glm::vec4(tri.normals[2], 0.0f)));
+    normal = glm::normalize(w * n0 + u * n1 + v * n2);
 
-    // check back-face hit or not
+    uv = w * tri.uvs[0] + u * tri.uvs[1] + v * tri.uvs[2];
+
+    if (uv.x < 0 || uv.x > 1 || uv.y < 0 || uv.y > 1) {
+        printf("UV out of range: (%f, %f)\n", uv.x, uv.y);
+    }
+
+
     wo = glm::dot(ray.direction, normal) > 0.0f;
-    if (wo) normal = -normal; // flip so it's always outward-facing
+    if (wo) normal = -normal;
 
     return t;
 }
-
-//__host__ __device__ float meshIntersectionTest(const Ray& ray, const Mesh& mesh,
-//    glm::vec3& intersectionPoint,
-//    glm::vec3& normal, bool& wo) {
-//    float tMin = -1.0f;
-//
-//    for (size_t i = 0; i < mesh.indices.size(); i += 3) {
-//        glm::vec3 v0 = glm::vec3(mesh.transform * glm::vec4(mesh.vertices[mesh.indices[i]], 1.0f));
-//        glm::vec3 v1 = glm::vec3(mesh.transform * glm::vec4(mesh.vertices[mesh.indices[i + 1]], 1.0f));
-//        glm::vec3 v2 = glm::vec3(mesh.transform * glm::vec4(mesh.vertices[mesh.indices[i + 2]], 1.0f));
-//
-//        glm::vec3 n;
-//        glm::vec3 ip;
-//        bool backface;
-//
-//        float t = triangleIntersectionTest(ray, v0, v1, v2, ip, n, backface);
-//        if (t > 0 && (tMin < 0 || t < tMin)) {
-//            tMin = t;
-//            intersectionPoint = ip;
-//            normal = n;
-//            wo = backface;
-//        }
-//    }
-//
-//    return tMin;
-//}
 
 __host__ __device__ float boxIntersectionTest(
     Geom box,

@@ -36,34 +36,78 @@ Scene::Scene(string filename)
     }
 }
 
-void Scene::loadFromOBJ(const std::string& filepath, const glm::mat4& transform, uint32_t materialId)
+void Scene::loadFromOBJ(const std::string& filepath, const glm::mat4& transform, uint32_t jsonMaterialId)
 {
     tinyobj::attrib_t attrib;
     std::vector<tinyobj::shape_t> shapes;
     std::vector<tinyobj::material_t> materials;
     std::string warn, err;
 
-    if (!tinyobj::LoadObj(&attrib, &shapes, &materials, &warn, &err, filepath.c_str(), nullptr, true)) {
+    std::string mtl_basedir = filepath.substr(0, filepath.find_last_of('/') + 1);
+
+    if (!tinyobj::LoadObj(&attrib, &shapes, &materials, &warn, &err, filepath.c_str(), mtl_basedir.c_str(), true)) {
         throw std::runtime_error("Tinyobj failed to load " + filepath + ": " + warn + err);
     }
+
     if (!warn.empty()) {
         std::cout << "TINYOBJ WARNING: " << warn << std::endl;
     }
 
-    glm::mat4 inverseTransform = glm::inverse(transform);
+    std::unordered_map<std::string, uint32_t> mtlNameToSceneID;
+    int materialIndexOffset = this->materials.size();
+    int texIdCounter = 0;
+
+    for (const auto& mtl : materials) {
+        Material newMaterial{};
+        newMaterial.color = glm::vec3(mtl.diffuse[0], mtl.diffuse[1], mtl.diffuse[2]);
+        newMaterial.specular.color = glm::vec3(mtl.specular[0], mtl.specular[1], mtl.specular[2]);
+
+        if (!mtl.diffuse_texname.empty() && mtl.diffuse_texname.find("_nor") == std::string::npos) {
+            std::string texPath = mtl_basedir + mtl.diffuse_texname;
+            loadTexture(texPath, newMaterial.diffuseTexture, false);
+            newMaterial.diffuseTexture.index = texIdCounter++;
+        }
+
+        if (!mtl.bump_texname.empty()) {
+            std::string bumpPath = mtl_basedir + mtl.bump_texname;
+            loadTexture(bumpPath, newMaterial.bumpTexture, true);
+            newMaterial.bumpTexture.index = texIdCounter++;
+        }
+
+        //if (glm::length(newMaterial.specular.color) > 1e-6f) {
+        //    if (mtl.shininess > 1e-6f) {
+        //        newMaterial.microfacet.isMicrofacet = true;
+        //        newMaterial.microfacet.roughness = glm::min(0.8f, 1.f / glm::sqrt(mtl.shininess + 1.f));
+        //    }
+        //    else {t
+        //        newMaterial.hasReflective = 1.f;
+        //    }
+        //}
+
+        uint32_t newID = this->materials.size();
+        this->materials.push_back(newMaterial);
+        mtlNameToSceneID[mtl.name] = newID;
+    }
+
+    glm::mat4 invTransform = glm::inverse(transform);
     glm::mat4 invTransposeTransform = glm::inverseTranspose(transform);
 
     for (const auto& shape : shapes) {
         size_t index_offset = 0;
         for (size_t f = 0; f < shape.mesh.num_face_vertices.size(); f++) {
-            Geom newTriangle;
-            newTriangle.type = TRIANGLE;
+            Geom tri{};
+            tri.type = TRIANGLE;
             bool hasNormals = false;
+
+            int mtl_index = shape.mesh.material_ids[f];
+            tri.materialid = (mtl_index >= 0) 
+                ? (materialIndexOffset + mtl_index)
+                : jsonMaterialId;
 
             for (size_t v = 0; v < 3; v++) {
                 tinyobj::index_t idx = shape.mesh.indices[index_offset + v];
 
-                newTriangle.vertices[v] = glm::vec3(
+                tri.vertices[v] = glm::vec3(
                     attrib.vertices[3 * idx.vertex_index + 0],
                     attrib.vertices[3 * idx.vertex_index + 1],
                     attrib.vertices[3 * idx.vertex_index + 2]
@@ -71,35 +115,39 @@ void Scene::loadFromOBJ(const std::string& filepath, const glm::mat4& transform,
 
                 if (idx.normal_index >= 0) {
                     hasNormals = true;
-                    newTriangle.normals[v] = glm::vec3(
+                    tri.normals[v] = glm::vec3(
                         attrib.normals[3 * idx.normal_index + 0],
                         attrib.normals[3 * idx.normal_index + 1],
                         attrib.normals[3 * idx.normal_index + 2]
                     );
                 }
+
+                if (idx.texcoord_index >= 0) {
+                    float tx = attrib.texcoords[2 * idx.texcoord_index + 0];
+                    float ty = attrib.texcoords[2 * idx.texcoord_index + 1];
+                    tri.uvs[v] = glm::vec2(tx, ty);
+                }
+                else {
+                    tri.uvs[v] = glm::vec2(0.0f);
+                }
             }
 
             if (!hasNormals) {
-                glm::vec3 v0 = newTriangle.vertices[0];
-                glm::vec3 v1 = newTriangle.vertices[1];
-                glm::vec3 v2 = newTriangle.vertices[2];
-                glm::vec3 faceNormal = glm::normalize(glm::cross(v1 - v0, v2 - v0));
-                newTriangle.normals[0] = faceNormal;
-                newTriangle.normals[1] = faceNormal;
-                newTriangle.normals[2] = faceNormal;
+                glm::vec3 faceNormal = glm::normalize(glm::cross(tri.vertices[1] - tri.vertices[0],
+                    tri.vertices[2] - tri.vertices[0]));
+                tri.normals[0] = tri.normals[1] = tri.normals[2] = faceNormal;
             }
 
-            newTriangle.materialid = materialId;
-            newTriangle.transform = transform;
-            newTriangle.inverseTransform = inverseTransform;
-            newTriangle.invTranspose = invTransposeTransform;
+            tri.transform = transform;
+            tri.inverseTransform = invTransform;
+            tri.invTranspose = invTransposeTransform;
 
-            this->geoms.push_back(newTriangle);
-
+            geoms.push_back(tri);
             index_offset += 3;
         }
     }
 }
+
 
 void Scene::loadFromJSON(const std::string& jsonName)
 {
@@ -112,7 +160,6 @@ void Scene::loadFromJSON(const std::string& jsonName)
         const auto& name = item.key();
         const auto& p = item.value();
         Material newMaterial{};
-        // TODO: handle materials loading differently
         if (p["TYPE"] == "Diffuse")
         {
             const auto& col = p["RGB"];
@@ -150,6 +197,22 @@ void Scene::loadFromJSON(const std::string& jsonName)
             newMaterial.hasRefractive = 1.0f;
 
         }
+
+        if (p.contains("DIFFUSE_TEXTURE")) {
+            std::string texPath = p["DIFFUSE_TEXTURE"];
+            loadTexture(texPath, newMaterial.diffuseTexture, false);
+        }
+        if (p.contains("BUMP_TEXTURE")) {
+            std::string texPath = p["BUMP_TEXTURE"];
+            loadTexture(texPath, newMaterial.bumpTexture, true);
+            if (p.contains("BUMP_STRENGTH")) {
+                newMaterial.bumpStrength = p["BUMP_STRENGTH"];
+            }
+        }
+        if (p.contains("USE_PROCEDURAL")) {
+            newMaterial.useProceduralTexture = p["USE_PROCEDURAL"];
+        }
+
         MatNameToID[name] = materials.size();
         materials.emplace_back(newMaterial);
     }
@@ -232,4 +295,55 @@ void Scene::loadFromJSON(const std::string& jsonName)
     int arraylen = camera.resolution.x * camera.resolution.y;
     state.image.resize(arraylen);
     std::fill(state.image.begin(), state.image.end(), glm::vec3());
+}
+
+void Scene::loadTexture(const std::string& filepath, Texture& tex, bool isFloat) {
+    std::string fixedPath = filepath;
+    std::replace(fixedPath.begin(), fixedPath.end(), '\\', '/');
+
+    int width, height, channels;
+
+    if (isFloat) {
+        float* data = stbi_loadf(fixedPath.c_str(), &width, &height, &channels, 3);
+        if (!data) {
+            std::cerr << "Failed to load float texture: " << fixedPath << "\n";
+            tex.index = -1;
+            return;
+        }
+        tex.width = width;
+        tex.height = height;
+        tex.startIdx = textureData.size();
+        tex.index = 0;
+        for (int i = 0; i < width * height; i++) {
+            glm::vec3 c(data[i * 3 + 0], data[i * 3 + 1], data[i * 3 + 2]);
+            textureData.push_back(c);
+        }
+        stbi_image_free(data);
+    }
+    else {
+        unsigned char* data = stbi_load(fixedPath.c_str(), &width, &height, &channels, 3);
+        if (!data) {
+            std::cerr << "Failed to load 8-bit texture: " << fixedPath << "\n";
+            tex.index = -1;
+            return;
+        }
+        tex.width = width;
+        tex.height = height;
+        tex.startIdx = textureData.size();
+        tex.index = 0;
+        for (int i = 0; i < width * height; i++) {
+            glm::vec3 c(
+                data[i * 3 + 0] / 255.0f,
+                data[i * 3 + 1] / 255.0f,
+                data[i * 3 + 2] / 255.0f
+            );
+            textureData.push_back(c);
+        }
+        stbi_image_free(data);
+    }
+
+    std::cout << "Loaded texture: " << fixedPath
+        << " (w=" << tex.width << ", h=" << tex.height
+        << ") startIdx=" << tex.startIdx
+        << " size now=" << textureData.size() << "\n";
 }

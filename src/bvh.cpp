@@ -68,8 +68,9 @@ void BVH::IntersectBVH(Ray& ray, const std::vector<Geom>& geoms, int nodeIdx, Sh
 			bool wo = true;
 
 			float t = -1;
+			glm::vec2 tmp_uv;
 			if (geoms[geomIdx].type == TRIANGLE) {
-				t = triangleIntersectionTest(ray, geoms[geomIdx], intersectionPoint, normal, wo);
+				t = triangleIntersectionTest(ray, geoms[geomIdx], intersectionPoint, normal, tmp_uv, wo);
 			}
 			else if (geoms[geomIdx].type == SPHERE) {
 				t = sphereIntersectionTest(geoms[geomIdx], ray, intersectionPoint, normal, wo);
@@ -82,6 +83,7 @@ void BVH::IntersectBVH(Ray& ray, const std::vector<Geom>& geoms, int nodeIdx, Sh
 				isect.t = t;
 				isect.surfaceNormal = normal;
 				isect.materialId = geoms[geomIdx].materialid;
+				isect.uv = tmp_uv;
 			}
 		}
 	}
@@ -109,11 +111,16 @@ void BVH::build(const std::vector<Geom>& geoms) {
 	bvhNode[rootNodeIdx].start = 0;
 	bvhNode[rootNodeIdx].count = N;
 
-	UpdateNodeBounds(rootNodeIdx, geoms); // makes the bounding box of the root node
-	Subdivide(rootNodeIdx, geoms); // recursively subdivides the root node to build out the tree
+	std::vector<AABB> precomputedBoxes(geoms.size());
+	for (int i = 0; i < geoms.size(); ++i) {
+		precomputedBoxes[i] = boundingBox(geoms[i]);
+	}
+
+	UpdateNodeBounds(rootNodeIdx, precomputedBoxes); // makes the bounding box of the root node
+	Subdivide(rootNodeIdx, geoms, precomputedBoxes); // recursively subdivides the root node to build out the tree
 }
 
-void BVH::UpdateNodeBounds(int idx, const std::vector<Geom>& geoms) {
+void BVH::UpdateNodeBounds(int idx, const std::vector<AABB>& boxes) {
 	BVHNode& node = bvhNode[idx];
 
 	if (node.count <= 0) {
@@ -131,17 +138,15 @@ void BVH::UpdateNodeBounds(int idx, const std::vector<Geom>& geoms) {
 		node.count = std::max(0, Nidx - node.start);
 	}
 
-	for (int i = 0; i < node.count; i++) { // loop thru all prims
-		int geomIdx = orderedGeomIndices[node.start + i];   // index of the primitive
-		const Geom& g = geoms[geomIdx];
-
-		auto box = boundingBox(g);
+	for (int i = 0; i < node.count; i++) {
+		int geomIdx = orderedGeomIndices[node.start + i];
+		const AABB& box = boxes[geomIdx];  // Use precomputed box
 		node.bboxMin = glm::min(node.bboxMin, box.min);
 		node.bboxMax = glm::max(node.bboxMax, box.max);
 	}
 }
 
-void BVH::Subdivide(int idx, const std::vector<Geom>& geoms) {
+void BVH::Subdivide(int idx, const std::vector<Geom>& geoms, const std::vector<AABB>& boxes) {
 	BVHNode& node = bvhNode[idx];
 
 	if (node.count <= 2) return;
@@ -157,16 +162,13 @@ void BVH::Subdivide(int idx, const std::vector<Geom>& geoms) {
 		orderedGeomIndices.begin() + mid,         
 		orderedGeomIndices.begin() + node.start + node.count,
 		[&](int a_idx, int b_idx) {
-			const Geom& geomA = geoms[a_idx];
-			const Geom& geomB = geoms[b_idx];
+			const AABB& boxA = boxes[a_idx];
+			const AABB& boxB = boxes[b_idx];
 
-			glm::vec3 centroidA = (geomA.vertices[0] + geomA.vertices[1] + geomA.vertices[2]) / 3.0f;
-			glm::vec3 centroidB = (geomB.vertices[0] + geomB.vertices[1] + geomB.vertices[2]) / 3.0f;
+			glm::vec3 centroidA = (boxA.min + boxA.max) * 0.5f;
+			glm::vec3 centroidB = (boxB.min + boxB.max) * 0.5f;
 
-			glm::vec3 worldCentroidA = glm::vec3(geomA.transform * glm::vec4(centroidA, 1.0f));
-			glm::vec3 worldCentroidB = glm::vec3(geomB.transform * glm::vec4(centroidB, 1.0f));
-
-			return worldCentroidA[axis] < worldCentroidB[axis];
+			return centroidA[axis] < centroidB[axis];
 		});
 
 	int leftCount = mid - node.start;
@@ -188,9 +190,9 @@ void BVH::Subdivide(int idx, const std::vector<Geom>& geoms) {
 	node.right = rightChildIdx;
 	node.count = 0;
 
-	UpdateNodeBounds(leftChildIdx, geoms);
-	UpdateNodeBounds(rightChildIdx, geoms);
+	UpdateNodeBounds(leftChildIdx, boxes);
+	UpdateNodeBounds(rightChildIdx, boxes);
 
-	Subdivide(leftChildIdx, geoms);
-	Subdivide(rightChildIdx, geoms);
+	Subdivide(leftChildIdx, geoms, boxes);
+	Subdivide(rightChildIdx, geoms, boxes);
 }
