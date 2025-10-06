@@ -325,11 +325,11 @@ __device__ void traverseBVH(
 
                     if (geom.type == CUBE)
                     {
-                        t = boxIntersectionTest(geom, r, tmp_intersect, tmp_normal, outside);
+                        t = boxIntersectionTest(geom, r, tmp_intersect, tmp_normal, tmp_uv, outside);
                     }
                     else if (geom.type == SPHERE)
                     {
-                        t = sphereIntersectionTest(geom, r, tmp_intersect, tmp_normal, outside);
+                        t = sphereIntersectionTest(geom, r, tmp_intersect, tmp_normal, tmp_uv, outside);
                     }
                     else if (geom.type == TRIANGLE)
                     {
@@ -441,15 +441,15 @@ __global__ void computeIntersections(
 
             if (geom.type == CUBE)
             {
-                t = boxIntersectionTest(geom, pathSegment.ray, tmp_intersect, tmp_normal, outside);
+                t = boxIntersectionTest(geom, pathSegment.ray, tmp_intersect, tmp_normal, tmp_uv, outside);
             }
             else if (geom.type == SPHERE)
             {
-                t = sphereIntersectionTest(geom, pathSegment.ray, tmp_intersect, tmp_normal, outside);
+                t = sphereIntersectionTest(geom, pathSegment.ray, tmp_intersect, tmp_normal, tmp_uv, outside);
             }
             // TODO: add more intersection tests here... triangle? metaball? CSG?
             else if (geom.type == TRIANGLE) {
-                t = triangleIntersectionTest(pathSegment.ray, geom, tmp_intersect, tmp_normal, outside);
+                t = triangleIntersectionTest(pathSegment.ray, geom, tmp_intersect, tmp_normal, tmp_uv, outside);
             }
             // Compute the minimum t from the intersection tests to determine what
             // scene geometry object was hit first.
@@ -573,7 +573,6 @@ __device__ glm::vec3 applyBumpMapping(
     float du = 1.0f / bumpTex.width;
     float dv = 1.0f / bumpTex.height;
 
-    // Sample height at center and neighbors
     glm::vec3 hC = sampleTexture(bumpTex, uv, textures);
     glm::vec3 hR = sampleTexture(bumpTex, uv + glm::vec2(du, 0), textures);
     glm::vec3 hU = sampleTexture(bumpTex, uv + glm::vec2(0, dv), textures);
@@ -585,7 +584,6 @@ __device__ glm::vec3 applyBumpMapping(
     float dh_du = (heightR - heightC) * bumpStrength;
     float dh_dv = (heightU - heightC) * bumpStrength;
 
-    // Create tangent space
     glm::vec3 tangent = glm::normalize(glm::cross(normal, glm::vec3(0, 1, 0)));
     if (glm::length(tangent) < 0.01f) {
         tangent = glm::normalize(glm::cross(normal, glm::vec3(1, 0, 0)));
@@ -632,6 +630,7 @@ __global__ void shadeMaterial(
     Material material = materials[intersection.materialId];
     glm::vec3 baseColor = material.color;
 
+
     if (material.diffuseTexture.index >= 0) {
         baseColor = sampleTexture(material.diffuseTexture, intersection.uv, dev_textures);
     }
@@ -639,12 +638,10 @@ __global__ void shadeMaterial(
         baseColor *= proceduralCheckerboard(intersection.uv, 8.0f);
     }
 
-    // Apply bump mapping
     glm::vec3 perturbedNormal = applyBumpMapping(
         intersection.uv, normal, material.bumpTexture,
         material.bumpStrength, dev_textures);
 
-    // Hitting a light directly
     if (material.emittance > 0.0f) {
         glm::vec3 emission = throughput * (baseColor * material.emittance);
         atomicAdd(&image[pathSegments[idx].pixelIndex].x, emission.x);
@@ -665,6 +662,7 @@ __global__ void shadeMaterial(
             geoms, materials, nodes, bvh_indices,
             light_indices, light_count, image, rng);
     }
+
     // Russian Roulette
 #if RUSSIAN_ROULETTE
     const int min_bounces = 3;

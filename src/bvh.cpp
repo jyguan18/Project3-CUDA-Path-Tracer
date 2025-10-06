@@ -73,10 +73,10 @@ void BVH::IntersectBVH(Ray& ray, const std::vector<Geom>& geoms, int nodeIdx, Sh
 				t = triangleIntersectionTest(ray, geoms[geomIdx], intersectionPoint, normal, tmp_uv, wo);
 			}
 			else if (geoms[geomIdx].type == SPHERE) {
-				t = sphereIntersectionTest(geoms[geomIdx], ray, intersectionPoint, normal, wo);
+				t = sphereIntersectionTest(geoms[geomIdx], ray, intersectionPoint, normal, tmp_uv, wo);
 			}
 			else if (geoms[geomIdx].type == CUBE) {
-				t = boxIntersectionTest(geoms[geomIdx], ray, intersectionPoint, normal, wo);
+				t = boxIntersectionTest(geoms[geomIdx], ray, intersectionPoint, normal, tmp_uv, wo);
 			}
 			if (t > 0 && t < ray.t) {
 				ray.t = t;

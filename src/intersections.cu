@@ -1,5 +1,7 @@
 #include "intersections.h"
 
+#define PI 3.14159265358979323
+
 __host__ __device__ bool bboxIntersectionTest(const Ray& ray, const glm::vec3& bmin, const glm::vec3& bmax) {
     glm::vec3 invDir = 1.0f / ray.direction;
 
@@ -63,6 +65,7 @@ __host__ __device__ float boxIntersectionTest(
     Ray r,
     glm::vec3 &intersectionPoint,
     glm::vec3 &normal,
+    glm::vec2& uv,
     bool &outside)
 {
     Ray q;
@@ -108,6 +111,19 @@ __host__ __device__ float boxIntersectionTest(
         }
         intersectionPoint = multiplyMV(box.transform, glm::vec4(getPointOnRay(q, tmin), 1.0f));
         normal = glm::normalize(multiplyMV(box.invTranspose, glm::vec4(tmin_n, 0.0f)));
+        
+        glm::vec3 objspaceIntersection = getPointOnRay(q, tmin);
+
+        if (glm::abs(tmin_n.x) > 0.5f) {
+            uv = glm::vec2(objspaceIntersection.z + 0.5f, objspaceIntersection.y + 0.5f);
+        }
+        else if (glm::abs(tmin_n.y) > 0.5f) {
+            uv = glm::vec2(objspaceIntersection.x + 0.5f, objspaceIntersection.z + 0.5f);
+        }
+        else {
+            uv = glm::vec2(objspaceIntersection.x + 0.5f, objspaceIntersection.y + 0.5f);
+        }
+
         return glm::length(r.origin - intersectionPoint);
     }
 
@@ -117,31 +133,27 @@ __host__ __device__ float boxIntersectionTest(
 __host__ __device__ float sphereIntersectionTest(
     Geom sphere,
     Ray r,
-    glm::vec3 &intersectionPoint,
-    glm::vec3 &normal,
-    bool &outside)
+    glm::vec3& intersectionPoint,
+    glm::vec3& normal,
+    glm::vec2& uv,
+    bool& outside)
 {
     float radius = .5;
-
     glm::vec3 ro = multiplyMV(sphere.inverseTransform, glm::vec4(r.origin, 1.0f));
     glm::vec3 rd = glm::normalize(multiplyMV(sphere.inverseTransform, glm::vec4(r.direction, 0.0f)));
-
     Ray rt;
     rt.origin = ro;
     rt.direction = rd;
-
     float vDotDirection = glm::dot(rt.origin, rt.direction);
     float radicand = vDotDirection * vDotDirection - (glm::dot(rt.origin, rt.origin) - powf(radius, 2));
     if (radicand < 0)
     {
         return -1;
     }
-
     float squareRoot = sqrt(radicand);
     float firstTerm = -vDotDirection;
     float t1 = firstTerm + squareRoot;
     float t2 = firstTerm - squareRoot;
-
     float t = 0;
     if (t1 < 0 && t2 < 0)
     {
@@ -157,11 +169,15 @@ __host__ __device__ float sphereIntersectionTest(
         t = max(t1, t2);
         outside = false;
     }
-
     glm::vec3 objspaceIntersection = getPointOnRay(rt, t);
-
     intersectionPoint = multiplyMV(sphere.transform, glm::vec4(objspaceIntersection, 1.f));
     normal = glm::normalize(multiplyMV(sphere.invTranspose, glm::vec4(objspaceIntersection, 0.f)));
+
+    // Calculate spherical UV coordinates
+    glm::vec3 d = glm::normalize(objspaceIntersection);
+    float phi = atan2(d.z, d.x);
+    float theta = asin(glm::clamp(d.y, -1.0f, 1.0f));
+    uv = glm::vec2((phi + PI) / (2.0f * PI), (theta + PI / 2.0f) / PI);
 
     return glm::length(r.origin - intersectionPoint);
 }

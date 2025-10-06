@@ -31,6 +31,17 @@
       "TYPE": "Glass",
       "RGB": [0.95, 0.95, 1.0],
       "IOR": 1.5
+    },
+    "procedural_test": {
+      "TYPE": "Diffuse",
+      "RGB": [0.8, 0.8, 0.8],
+      "USE_PROCEDURAL": true
+    },
+    "bumpy_surface": {
+      "TYPE": "Diffuse",
+      "RGB": [0.8, 0.8, 0.8],
+      "BUMP_TEXTURE": "../scenes/obj/bumps/water_displacement.png",
+      "BUMP_STRENGTH": 10.0
     }
   },
   "Camera": {
@@ -87,12 +98,12 @@
       "SCALE": [0.01, 10.0, 10.0]
     },
     {
-      "TYPE": "mesh",
-      "MATERIAL": "diffuse_white",
-      "FILEPATH": "../scenes/obj/Aircraft_obj.obj",
-      "TRANS": [0.0, 0.0, 0.0],
-      "ROTAT": [0.0, 135.0, 0.0],
-      "SCALE": [2.0, 2.0, 2.0]
+      "TYPE": "sphere",
+      "MATERIAL": "bumpy_surface",
+      "RGB": [0.9, 0.9, 0.9],
+      "TRANS": [0.0, 2.0, 0.0],
+      "ROTAT": [0.0, 0.0, 0.0],
+      "SCALE": [5.0, 5.0, 5.0]
     }
   ]
 }
