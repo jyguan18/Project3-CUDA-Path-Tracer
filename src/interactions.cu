@@ -154,7 +154,7 @@ __host__ __device__ void scatterRay(
         float etaA = 1.;
         float etaB = 1.55;
 
-        bool entering = wo.z > 0.0f;
+        bool entering = glm::dot(wo, normal) > 0.0f;
         float etaI = entering ? etaA : etaB;
         float etaT = entering ? etaB : etaA;
 
@@ -162,31 +162,31 @@ __host__ __device__ void scatterRay(
         float eta =  etaI / etaT;
 
         wi = glm::refract(-wo, n, eta);
-        float cosTheta = fabs(glm::dot(n, wi));
-        //pathSegment.color *= m.color * (eta * eta) / glm::max(cosTheta, 1e-6f);
+
         if (glm::length(wi) < 1e-6f) {
             wi = glm::reflect(-wo, n);
         }
     }
-    else if (m.hasRefractive > 0.5f && m.hasReflective > 0.5f) { // reflection + refraction (glass)
+    else if (m.hasRefractive > 0.5f && m.hasReflective > 0.5f) { // glass
         float etaA = 1.0f;
         float etaB = (m.indexOfRefraction > 0.0) ? m.indexOfRefraction : 1.55f;
-        bool entering = glm::dot(wo, normal) > 0.0f;
+
+        bool entering = glm::dot(pathSegment.ray.direction, normal) < 0.0f;
         glm::vec3 n = entering ? normal : -normal;
         float eta = entering ? (etaA / etaB) : (etaB / etaA);
 
-        float cosTheta = glm::dot(wo, n);
+        float cosTheta = glm::abs(glm::dot(pathSegment.ray.direction, n));
         float R0 = (etaA - etaB) / (etaA + etaB);
         R0 = R0 * R0;
-        float fresnel = R0 + (1.0f - R0) * powf(1.0f - cosTheta, 5.0);
+        float fresnel = R0 + (1.0f - R0) * powf(1.0f - cosTheta, 5.0f);
 
         if (xi < fresnel) {
-            wi = glm::reflect(-wo, n);
+            wi = glm::reflect(pathSegment.ray.direction, n);  // Don't negate!
         }
         else {
-            wi = glm::refract(-wo, n, eta);
+            wi = glm::refract(pathSegment.ray.direction, n, eta);  // Don't negate!
             if (glm::length(wi) < 1e-6f) {
-                wi = glm::reflect(-wo, n);
+                wi = glm::reflect(pathSegment.ray.direction, n);
             }
         }
     }

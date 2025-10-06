@@ -88,31 +88,10 @@
     },
     {
       "TYPE": "sphere",
-      "MATERIAL": "diffuse_white",
-      "TRANS": [-2.5, 2.0, -1.5],
-      "ROTAT": [0.0, 0.0, 0.0],
-      "SCALE": [2.0, 2.0, 2.0]
-    },
-    {
-      "TYPE": "sphere",
-      "MATERIAL": "specular_white",
-      "TRANS": [2.5, 2.0, -1.5],
-      "ROTAT": [0.0, 0.0, 0.0],
-      "SCALE": [2.0, 2.0, 2.0]
-    },
-    {
-      "TYPE": "sphere",
-      "MATERIAL": "specular_transmissive",
-      "TRANS": [0, 2.0, 0],
-      "ROTAT": [0.0, 0.0, 0.0],
-      "SCALE": [2.0, 2.0, 2.0]
-    },
-    {
-      "TYPE": "sphere",
       "MATERIAL": "glass",
-      "TRANS": [0.0, 6.0, 0.0],
+      "TRANS": [0.0, 3.0, 0.0],
       "ROTAT": [0.0, 0.0, 0.0],
-      "SCALE": [2.0, 2.0, 2.0]
+      "SCALE": [5.0, 5.0, 5.0]
     }
   ]
 }

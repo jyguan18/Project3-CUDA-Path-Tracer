@@ -568,12 +568,14 @@ __global__ void shadeMaterial(
         return;
     }
 
-    addDirectLighting(
-        pathSegments[idx].pixelIndex,
-        hitPoint, normal, material, throughput,
-        geoms, materials, nodes, bvh_indices,
-        light_indices, light_count, image, rng);
-
+    bool isSpecular = (material.hasReflective > 0.5f) || (material.hasRefractive > 0.5f);
+    if (!isSpecular) {
+        addDirectLighting(
+            pathSegments[idx].pixelIndex,
+            hitPoint, normal, material, throughput,
+            geoms, materials, nodes, bvh_indices,
+            light_indices, light_count, image, rng);
+    }
     // Russian Roulette
 #if RUSSIAN_ROULETTE
     const int min_bounces = 3;
@@ -592,10 +594,6 @@ __global__ void shadeMaterial(
     }
 #endif
 
-    // Spawn next ray
-    if (glm::dot(normal, pathSegments[idx].ray.direction) > 0.0f) {
-        normal = -normal;
-    }
     scatterRay(pathSegments[idx], hitPoint, normal, material, rng);
 
     dev_albedo[pathSegments[idx].pixelIndex] = pathSegments[idx].color;
