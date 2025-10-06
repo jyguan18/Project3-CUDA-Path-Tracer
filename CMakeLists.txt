@@ -30,6 +30,7 @@ if(UNIX)
     set(GL_LIBRARIES glfw ${GLEW_LIBRARIES} ${OPENGL_LIBRARIES})
 else(UNIX)
     set(EXTERNAL "${CMAKE_SOURCE_DIR}/external")
+    set(OIDN_LIBRARY "${EXTERNAL}/OpenImageDenoise/lib/OpenImageDenoise.lib")
 
     set(GLFW_ROOT_DIR ${EXTERNAL})
     set(GLFW_USE_STATIC_LIBS ON)
@@ -47,6 +48,8 @@ endif(UNIX)
 set(GLM_ROOT_DIR "${CMAKE_SOURCE_DIR}/external")
 find_package(GLM REQUIRED)
 include_directories(${GLM_INCLUDE_DIRS})
+
+set(OIDN_ROOT_DIR "${CMAKE_SOURCE_DIR}/external/OpenImageDenoise" CACHE PATH "Path to OpenImageDenoise")
 
 set(headers
     src/bvh.h
@@ -109,10 +112,29 @@ source_group("ImGui\\Sources" FILES ${imgui_sources})
 #add_subdirectory(stream_compaction)  # TODO: uncomment if using your stream compaction
 
 add_executable(${CMAKE_PROJECT_NAME} ${sources} ${headers} ${imgui_sources} ${imgui_headers})
+
+target_include_directories(${CMAKE_PROJECT_NAME} PRIVATE ${OIDN_ROOT_DIR}/include)
+
 target_link_libraries(${CMAKE_PROJECT_NAME}
     ${GL_LIBRARIES}
+    ${OIDN_LIBRARY}
     #stream_compaction  # TODO: uncomment if using your stream compaction
 )
+
+file(GLOB_RECURSE OIDN_DLLS
+    "${CMAKE_SOURCE_DIR}/external/OpenImageDenoise/bin/*.dll"
+)
+
+# Add post-build command to copy each DLL to the target output dir
+foreach(dll ${OIDN_DLLS})
+    add_custom_command(TARGET ${CMAKE_PROJECT_NAME} POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            "${dll}"
+            "$<TARGET_FILE_DIR:${CMAKE_PROJECT_NAME}>"
+        COMMENT "Copying ${dll} to output folder"
+    )
+endforeach()
+
 set_target_properties(${CMAKE_PROJECT_NAME} PROPERTIES CUDA_SEPARABLE_COMPILATION ON)
 set_target_properties(${CMAKE_PROJECT_NAME} PROPERTIES CUDA_ARCHITECTURES native)
 

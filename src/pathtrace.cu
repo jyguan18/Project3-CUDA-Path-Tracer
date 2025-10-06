@@ -23,6 +23,8 @@
 #define COMPACT true
 #define ENABLE_BVH true
 #define RUSSIAN_ROULETTE true
+#define DENOISE true
+#define DENOISE_INTERVAL 5
 
 #define FILENAME (strrchr(__FILE__, '/') ? strrchr(__FILE__, '/') + 1 : __FILE__)
 #define checkCUDAError(msg) checkCUDAErrorFn(msg, FILENAME, __LINE__)
@@ -91,14 +93,74 @@ static BVH bvh;
 static BVHNode* dev_bvhNodes = NULL;
 static int* dev_orderedGeomIndices = NULL;
 static int* dev_light_indices = NULL;
+
+static glm::vec3* dev_albedo = NULL;
+static glm::vec3* dev_normal = NULL;
+static glm::vec3* dev_oidn_image = NULL;
+
 static int hst_light_count = 0;
-// TODO: static variables for device memory, any extra info you need, etc
-// ...
+static oidn::DeviceRef oidn_device;
+static oidn::FilterRef oidn_color_filter;
+static oidn::FilterRef oidn_albedo_filter;
+static oidn::FilterRef oidn_normal_filter;
 
 void InitDataContainer(GuiDataContainer* imGuiData)
 {
     guiData = imGuiData;
 }
+
+void denoiserInit() {
+    // Create OIDN device (CUDA) and use the global oidn_device variable
+    oidn_device = oidn::newDevice(oidn::DeviceType::CUDA);
+
+    // Choose CUDA device 0 explicitly (change if you need device 1 etc.)
+    oidn_device.set("device", 0);
+
+    // Commit the device (required before creating filters)
+    oidn_device.commit();
+
+    // Optional: check device errors early
+    const char* devErr = nullptr;
+    if (oidn_device.getError(devErr) != oidn::Error::None) {
+        std::cerr << "OIDN device error after commit: " << (devErr ? devErr : "(null)") << std::endl;
+        return;
+    }
+
+    const int width = hst_scene->state.camera.resolution.x;
+    const int height = hst_scene->state.camera.resolution.y;
+
+    // Make sure your dev_albedo/dev_normal/dev_oidn_image are already cudaMalloc'ed
+    // (you allocate them in pathtraceInit before calling denoiserInit())
+
+    // --- Color Filter (Main) ---
+    oidn_color_filter = oidn_device.newFilter("RT");
+    oidn_color_filter.setImage("color", dev_image, oidn::Format::Float3, width, height);
+    oidn_color_filter.setImage("albedo", dev_albedo, oidn::Format::Float3, width, height);
+    oidn_color_filter.setImage("normal", dev_normal, oidn::Format::Float3, width, height);
+    oidn_color_filter.setImage("output", dev_oidn_image, oidn::Format::Float3, width, height);
+    oidn_color_filter.set("hdr", true);       // HDR colors
+    oidn_color_filter.set("cleanAux", true);  // denoise guides first
+    oidn_color_filter.commit();
+
+    // --- Albedo Filter ---
+    oidn_albedo_filter = oidn_device.newFilter("RT");
+    oidn_albedo_filter.setImage("color", dev_albedo, oidn::Format::Float3, width, height); // filter input = albedo
+    oidn_albedo_filter.setImage("output", dev_albedo, oidn::Format::Float3, width, height); // write back to dev_albedo
+    oidn_albedo_filter.commit();
+
+    // --- Normal Filter ---
+    oidn_normal_filter = oidn_device.newFilter("RT");
+    oidn_normal_filter.setImage("color", dev_normal, oidn::Format::Float3, width, height); // filter input = normal
+    oidn_normal_filter.setImage("output", dev_normal, oidn::Format::Float3, width, height); // write back to dev_normal
+    oidn_normal_filter.commit();
+
+    // Check for errors after creating/committing filters
+    if (oidn_device.getError(devErr) != oidn::Error::None) {
+        std::cerr << "OIDN device error after filter creation: " << (devErr ? devErr : "(null)") << std::endl;
+    }
+}
+
+
 
 void pathtraceInit(Scene* scene)
 {
@@ -143,6 +205,14 @@ void pathtraceInit(Scene* scene)
     cudaMalloc(&dev_orderedGeomIndices, bvh.orderedGeomIndices.size() * sizeof(int));
     cudaMemcpy(dev_orderedGeomIndices, bvh.orderedGeomIndices.data(), bvh.orderedGeomIndices.size() * sizeof(int), cudaMemcpyHostToDevice);
 
+#if DENOISE
+    cudaMalloc(&dev_albedo, pixelcount * sizeof(glm::vec3));
+    cudaMalloc(&dev_normal, pixelcount * sizeof(glm::vec3));
+    cudaMalloc(&dev_oidn_image, pixelcount * sizeof(glm::vec3));
+
+    denoiserInit();
+#endif
+
     checkCUDAError("pathtraceInit");
 }
 
@@ -156,6 +226,13 @@ void pathtraceFree()
 
     cudaFree(dev_bvhNodes);
     cudaFree(dev_orderedGeomIndices);
+
+#if DENOISE
+    cudaFree(dev_albedo);
+    cudaFree(dev_normal);
+    cudaFree(dev_oidn_image);
+    // OIDN objects release themselves automatically
+#endif
 
     checkCUDAError("pathtraceFree");
 }
@@ -198,7 +275,6 @@ __global__ void generateRayFromCamera(Camera cam, int iter, int traceDepth, Path
         segment.remainingBounces = traceDepth;
     }
 }
-
 
 
 __device__ void traverseBVH(
@@ -460,7 +536,9 @@ __global__ void shadeMaterial(
     BVHNode* nodes,
     int* bvh_indices,
     int* light_indices,
-    int light_count)
+    int light_count,
+    glm::vec3* dev_albedo,
+    glm::vec3* dev_normal)
 {
     int idx = blockIdx.x * blockDim.x + threadIdx.x;
     if (idx >= num_paths) return;
@@ -519,6 +597,9 @@ __global__ void shadeMaterial(
         normal = -normal;
     }
     scatterRay(pathSegments[idx], hitPoint, normal, material, rng);
+
+    dev_albedo[pathSegments[idx].pixelIndex] = pathSegments[idx].color;
+    dev_normal[pathSegments[idx].pixelIndex] = intersection.surfaceNormal;
 }
 
 
@@ -547,6 +628,52 @@ struct CompareMatId {
         return a.materialId < b.materialId;
     }
 };
+
+__global__ void debug_fillBuffer(glm::vec3* buffer, glm::ivec2 resolution) {
+    int x = (blockIdx.x * blockDim.x) + threadIdx.x;
+    int y = (blockIdx.y * blockDim.y) + threadIdx.y;
+
+    if (x < resolution.x && y < resolution.y) {
+        int index = x + (y * resolution.x);
+        buffer[index] = glm::vec3(1.0f, 0.0f, 1.0f); // Bright Pink!
+    }
+}
+
+void OIDN_Denoise() {
+    oidn::DeviceRef device = oidn::newDevice();
+    device.commit();
+
+    const int width = hst_scene->state.camera.resolution.x;
+    const int height = hst_scene->state.camera.resolution.y;
+
+    oidn::FilterRef filter = device.newFilter("RT");
+    filter.setImage("color", dev_image, oidn::Format::Float3, width, height);
+    filter.setImage("normal", dev_normal, oidn::Format::Float3, width, height);
+    filter.setImage("albedo", dev_albedo, oidn::Format::Float3, width, height);
+    filter.setImage("output", dev_oidn_image, oidn::Format::Float3, width, height);
+    filter.set("hdr", true);
+    filter.set("cleanAux", true);
+    filter.commit();
+
+    oidn::FilterRef albedoFilter = device.newFilter("RT");
+    albedoFilter.setImage("albedo", dev_albedo, oidn::Format::Float3, width, height);
+    albedoFilter.setImage("output", dev_albedo, oidn::Format::Float3, width, height);
+    albedoFilter.commit();
+
+    oidn::FilterRef normalFilter = device.newFilter("RT");
+    normalFilter.setImage("normal", dev_normal, oidn::Format::Float3, width, height);
+    normalFilter.setImage("output", dev_normal, oidn::Format::Float3, width, height);
+    normalFilter.commit();
+
+    albedoFilter.execute();
+    normalFilter.execute();
+    filter.execute();
+
+    const char* errorMessage;
+    if (oidn_device.getError(errorMessage) != oidn::Error::None) {
+        std::cerr << "OIDN Error: " << errorMessage << std::endl;
+    }
+}
 
 void pathtrace(uchar4* pbo, int frame, int iter)
 {
@@ -619,7 +746,9 @@ void pathtrace(uchar4* pbo, int frame, int iter)
             dev_bvhNodes,
             dev_orderedGeomIndices,
             dev_light_indices,
-            hst_light_count
+            hst_light_count,
+            dev_albedo,
+            dev_normal
             );
 
 #if COMPACT
@@ -638,8 +767,21 @@ void pathtrace(uchar4* pbo, int frame, int iter)
 
         depth++;
     }
+    
+#if DENOISE
+    glm::vec3* image_to_display = dev_image;
+    int display_iter = iter;
 
+    if (iter >= 1 && ((iter % DENOISE_INTERVAL == 0) || (iter >= hst_scene->state.iterations))) {
+        OIDN_Denoise();
+        image_to_display = dev_oidn_image;
+        display_iter = iter;
+    }
+
+    sendImageToPBO << <blocksPerGrid2d, blockSize2d >> > (pbo, cam.resolution, display_iter, image_to_display);
+#else
     sendImageToPBO << <blocksPerGrid2d, blockSize2d >> > (pbo, cam.resolution, iter, dev_image);
+#endif
 
     cudaMemcpy(hst_scene->state.image.data(), dev_image,
         pixelcount * sizeof(glm::vec3), cudaMemcpyDeviceToHost);

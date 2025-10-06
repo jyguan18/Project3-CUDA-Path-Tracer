@@ -3,23 +3,23 @@
 
 #pragma once
 
-#define OIDN_VERSION_MAJOR @OIDN_VERSION_MAJOR@
-#define OIDN_VERSION_MINOR @OIDN_VERSION_MINOR@
-#define OIDN_VERSION_PATCH @OIDN_VERSION_PATCH@
-#define OIDN_VERSION @OIDN_VERSION_NUMBER@
-#define OIDN_VERSION_STRING "@OIDN_VERSION_MAJOR@.@OIDN_VERSION_MINOR@.@OIDN_VERSION_PATCH@@OIDN_VERSION_NOTE@"
+#define OIDN_VERSION_MAJOR 2
+#define OIDN_VERSION_MINOR 3
+#define OIDN_VERSION_PATCH 3
+#define OIDN_VERSION 20303
+#define OIDN_VERSION_STRING "2.3.3"
 
-#cmakedefine OIDN_API_NAMESPACE @OIDN_API_NAMESPACE@
-#cmakedefine OIDN_STATIC_LIB
+/* #undef OIDN_API_NAMESPACE */
+/* #undef OIDN_STATIC_LIB */
 
 #if defined(OIDN_API_NAMESPACE)
-  #define OIDN_API_NAMESPACE_BEGIN namespace @OIDN_API_NAMESPACE@ {
+  #define OIDN_API_NAMESPACE_BEGIN namespace  {
   #define OIDN_API_NAMESPACE_END }
-  #define OIDN_API_NAMESPACE_USING using namespace @OIDN_API_NAMESPACE@;
+  #define OIDN_API_NAMESPACE_USING using namespace ;
   #define OIDN_API_EXTERN_C
-  #define OIDN_NAMESPACE @OIDN_API_NAMESPACE@::oidn
-  #define OIDN_NAMESPACE_C @OIDN_API_NAMESPACE@_oidn
-  #define OIDN_NAMESPACE_BEGIN namespace @OIDN_API_NAMESPACE@ { namespace oidn {
+  #define OIDN_NAMESPACE ::oidn
+  #define OIDN_NAMESPACE_C _oidn
+  #define OIDN_NAMESPACE_BEGIN namespace  { namespace oidn {
   #define OIDN_NAMESPACE_END }}
 #else
   #define OIDN_API_NAMESPACE_BEGIN
@@ -62,20 +62,20 @@
 #endif
 
 #if !defined(OIDN_DEVICE_CPU)
-  #cmakedefine OIDN_DEVICE_CPU
+  #define OIDN_DEVICE_CPU
 #endif
 #if !defined(OIDN_DEVICE_SYCL)
-  #cmakedefine OIDN_DEVICE_SYCL
+  #define OIDN_DEVICE_SYCL
 #endif
 #if !defined(OIDN_DEVICE_CUDA)
-  #cmakedefine OIDN_DEVICE_CUDA
+  #define OIDN_DEVICE_CUDA
 #endif
 #if !defined(OIDN_DEVICE_HIP)
-  #cmakedefine OIDN_DEVICE_HIP
+  #define OIDN_DEVICE_HIP
 #endif
 #if !defined(OIDN_DEVICE_METAL)
-  #cmakedefine OIDN_DEVICE_METAL
+/* #undef OIDN_DEVICE_METAL */
 #endif
 
-#cmakedefine OIDN_FILTER_RT
-#cmakedefine OIDN_FILTER_RTLIGHTMAP
+#define OIDN_FILTER_RT
+#define OIDN_FILTER_RTLIGHTMAP
