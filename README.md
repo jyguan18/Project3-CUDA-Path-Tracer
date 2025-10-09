@@ -38,11 +38,10 @@ Key implemented features include:
 
 BSDF (Bidirectional Scattering Distribution Function) models how light reflects and refracts at a surface. This project supports diffuse, specular and refractive materials. Refraction uses Snell's Law and Fresnel equations to achieve realistic glass and transparent objects. The combination of BSDFs allows for more visual diversity in rendered scenes.
 
-| Material Type  | Description                              | Example                                |
-| -------------- | ---------------------------------------- | -------------------------------------- |
-| **Diffuse**    | Lambertian reflection for matte surfaces | ![Diffuse Render](img/diffuse.png)  |
-| **Specular**   | Perfect mirror reflection                | ![Specular Render](img/spec.png)    |
-| **Refractive** | Dielectric material with refraction      | ![Refractive Render](img/glass.png) |
+| **Diffuse** | **Specular** | **Refractive** |
+| :----------: | :-----------: | :-------------: |
+| <img src="img/diffuse.png" width="300"/> | <img src="img/spec.png" width="300"/> | <img src="img/glass.png" width="300"/> |
+
 
 ### Stochastic Sampled Anitaliasing
 
