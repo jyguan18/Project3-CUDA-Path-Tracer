@@ -47,15 +47,12 @@
   "Camera": {
     "RES": [800, 800],
     "FOVY": 45.0,
-    "ITERATIONS": 5000,
+    "ITERATIONS": 500,
     "DEPTH": 8,
     "FILE": "cornell",
     "EYE": [0.0, 5.0, 10.5],
     "LOOKAT": [0.0, 5.0, 0.0],
     "UP": [0.0, 1.0, 0.0]
-  },
-  "Environment": {
-    "TEXTURE": "../scenes/obj/environment_maps/fireplace_4k.hdr"
   },
   "Objects": [
     {
@@ -102,18 +99,10 @@
     },
     {
       "TYPE": "sphere",
-      "MATERIAL": "bumpy_surface",
-      "RGB": [0.9, 0.9, 0.9],
-      "TRANS": [0.0, 2.0, 0.0],
+      "MATERIAL": "diffuse_white",
+      "TRANS": [0.0, 4.0, 0.0],
       "ROTAT": [0.0, 0.0, 0.0],
       "SCALE": [5.0, 5.0, 5.0]
-    },
-    {
-      "TYPE": "sphere",
-      "MATERIAL": "specular_white",
-      "TRANS": [-2.0, 0.0, 0.0],
-      "ROTAT": [0.0, 0.0, 0.0],
-      "SCALE": [2.0, 2.0, 2.0]
     }
   ]
 }

@@ -70,19 +70,11 @@ void Scene::loadFromOBJ(const std::string& filepath, const glm::mat4& transform,
 
         if (!mtl.bump_texname.empty()) {
             std::string bumpPath = mtl_basedir + mtl.bump_texname;
-            loadTexture(bumpPath, newMaterial.bumpTexture, true);
+            bool isFloat = (bumpPath.substr(bumpPath.find_last_of('.') + 1) == "hdr");
+
+            loadTexture(bumpPath, newMaterial.bumpTexture, isFloat);
             newMaterial.bumpTexture.index = texIdCounter++;
         }
-
-        //if (glm::length(newMaterial.specular.color) > 1e-6f) {
-        //    if (mtl.shininess > 1e-6f) {
-        //        newMaterial.microfacet.isMicrofacet = true;
-        //        newMaterial.microfacet.roughness = glm::min(0.8f, 1.f / glm::sqrt(mtl.shininess + 1.f));
-        //    }
-        //    else {t
-        //        newMaterial.hasReflective = 1.f;
-        //    }
-        //}
 
         uint32_t newID = this->materials.size();
         this->materials.push_back(newMaterial);

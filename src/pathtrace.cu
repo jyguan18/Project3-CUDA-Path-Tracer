@@ -22,8 +22,8 @@
 #define SORT_MAT true
 #define COMPACT true
 #define ENABLE_BVH true
-#define RUSSIAN_ROULETTE true
-#define DENOISE true
+#define RUSSIAN_ROULETTE false
+#define DENOISE false
 #define DENOISE_INTERVAL 5
 
 #define FILENAME (strrchr(__FILE__, '/') ? strrchr(__FILE__, '/') + 1 : __FILE__)
@@ -207,9 +207,11 @@ void pathtraceInit(Scene* scene)
     cudaMalloc(&dev_orderedGeomIndices, bvh.orderedGeomIndices.size() * sizeof(int));
     cudaMemcpy(dev_orderedGeomIndices, bvh.orderedGeomIndices.data(), bvh.orderedGeomIndices.size() * sizeof(int), cudaMemcpyHostToDevice);
 
-#if DENOISE
     cudaMalloc(&dev_albedo, pixelcount * sizeof(glm::vec3));
     cudaMalloc(&dev_normal, pixelcount * sizeof(glm::vec3));
+
+#if DENOISE
+    
     cudaMalloc(&dev_oidn_image, pixelcount * sizeof(glm::vec3));
 
     denoiserInit();
@@ -235,10 +237,11 @@ void pathtraceFree()
 
     cudaFree(dev_bvhNodes);
     cudaFree(dev_orderedGeomIndices);
-
-#if DENOISE
     cudaFree(dev_albedo);
     cudaFree(dev_normal);
+
+#if DENOISE
+    
     cudaFree(dev_oidn_image);
     // OIDN objects release themselves automatically
 #endif
@@ -916,6 +919,7 @@ void pathtrace(uchar4* pbo, int frame, int iter)
     if (iter >= 1 && ((iter % DENOISE_INTERVAL == 0) || (iter >= hst_scene->state.iterations))) {
         OIDN_Denoise();
         image_to_display = dev_oidn_image;
+        dev_image = image_to_display;
         display_iter = iter;
     }
 
