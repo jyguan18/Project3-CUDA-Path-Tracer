@@ -54,9 +54,9 @@ To achieve smooth edges and avoid jagged artifacts, I implemented stochastic sam
 
 Depth of field simulates a thin-lens camera model, where only objects at the focal distance are sharp and others blur progressively. This can easily create and add a cinematic quality to renders and enhance spatial depth perception.
 
-| DOF Example              | Bump Mapping         |
-| ------------------------ | -------------------- |
-| ![Texture](img/text.png) | ![Bump](img/bmp.png) |
+| DOF Example             |
+| ----------------------- |
+| ![Texture](img/dof.png) |
 
 ### Texture and Bump Mapping
 
