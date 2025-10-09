@@ -40,9 +40,9 @@ BSDF (Bidirectional Scattering Distribution Function) models how light reflects 
 
 | Material Type  | Description                              | Example                                |
 | -------------- | ---------------------------------------- | -------------------------------------- |
-| **Diffuse**    | Lambertian reflection for matte surfaces | ![Diffuse Render](images/diffuse.png)  |
-| **Specular**   | Perfect mirror reflection                | ![Specular Render](images/spec.png)    |
-| **Refractive** | Dielectric material with refraction      | ![Refractive Render](images/glass.png) |
+| **Diffuse**    | Lambertian reflection for matte surfaces | ![Diffuse Render](img/diffuse.png)  |
+| **Specular**   | Perfect mirror reflection                | ![Specular Render](img/spec.png)    |
+| **Refractive** | Dielectric material with refraction      | ![Refractive Render](img/glass.png) |
 
 ### Stochastic Sampled Anitaliasing
 
@@ -50,7 +50,7 @@ To achieve smooth edges and avoid jagged artifacts, I implemented stochastic sam
 
 | Without Anti-Aliasing      | With Stochastic Anti-Aliasing |
 | -------------------------- | ----------------------------- |
-| ![No AA](images/no_aa.png) | ![AA](images/aa.png)          |
+| ![No AA](img/no_aa.png) | ![AA](img/aa.png)          |
 
 ### Depth of Field
 
@@ -62,7 +62,7 @@ Textures can be sampled from image maps, allowing materials to use color and pat
 
 | Texture Mapping                 | Bump Mapping              |
 | ------------------------------- | ------------------------- |
-| ![Texture](path/to/texture.png) | ![Bump](path/to/bump.png) |
+| ![Texture](img/text.png) | ![Bump](img/bmp.png) |
 
 ### Direct lighting
 
@@ -78,7 +78,7 @@ I added support for environment maps, which provide ambient lighting from HDR im
 
 | Environment Map Scene              |
 | ---------------------------------- |
-| ![Environment Map](images/env.png) |
+| ![Environment Map](img/env.png) |
 
 ### Arbitrary Mesh Loading
 
@@ -91,7 +91,7 @@ I implemented Intel's OpenImageDenoise for final post-processing and it produces
 
 | Before Denoise (500 Iterations) | After Denoise (500 Iterations)  |
 | ------------------------------- | ------------------------------- |
-| ![Noisy](iamges/noise.png)      | ![Denoised](images/denoise.png) |
+| ![Noisy](img/noise.png)      | ![Denoised](img/denoise.png) |
 
 ## Performance Analysis
 
