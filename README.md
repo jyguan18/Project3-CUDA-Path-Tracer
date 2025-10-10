@@ -111,6 +111,10 @@ Without compaction, every ray continues to be processed even if it has already t
 
 By sorting rays by material type before shading, GPU divergence is reduced and memory coherence improves.
 
+On the GPU, threads execute in groups called warps (typically 32 threads). If all of the threads in a warp execute the same instructions, the GPU will end up running at maximum efficiency. However, if threads in the warp hit different materials, they need to execute different code paths, which is called thread divergence. The warp has to execute the codoe for all hit material types, with inactive threads simply waiting. This realizes the workload and results in massive waste of computational power.
+
+So, we need a kernel that finds the closest intersection for each ray and writes out the material ID of the object it hit. Then it will do a sort pass, which is a GPU-accelerated sort algorithm that rearranges the ray indices based on their material ID. And then separate, specialized shading kernels are launched for each contiguous block of material types. For example, one kernel will handle all the diffuse shading while another kernel handles all refractvie shading. Because each shading kernel is now specialized and all threads within a warp are executing the same instructions, thread divergence is almost eliminated and performance improves greatly.
+
 ### Bounding Volume Hierarchy (BVH)
 
 A Bounding Volume Hierarchy (BVH) is a tree-based acceleration structure that reduces the number of ray-primitive intersection tests in a scene. Instead of checking every ray against every object, rays traverse the BVH tree and only test geometry that lies within intersected bounding boxes. This allows culling of large portions of the scene that a ray cannot hit, which improves performance, especially for complex scenes with many triangles.
@@ -125,6 +129,16 @@ A Bounding Volume Hierarchy (BVH) is a tree-based acceleration structure that re
    Rays are tested against odes in the BVH using a stack-based traversal algorithm. If a ray intersects a node's bounding box, traversal continues into its children. If a node is a leaf, the ray is tested against all contained primitives. And if no intersection occures or the ray goes past the furthest intersection found, the node gets skipped.
 
 #### Performance Analysis
+
+To gather how effective BVH is, I measured what the rendered frame rate (FPS) was on four different models with varying complexity. The tests were run with and without BVH enabled.
+
+![](img/bvh.png)
+
+The graph above visually demonstrates the data, showing how the performance of the non-BVH renderer slows down drastically as the triangle count increases. Meanwhile, the BVH-accelerated renderer is able to maintain significantly higher and more scalable performance.
+
+From these results, we can clearly see the impact of BVH. In scenes as small as a simple Cornell box, the BVH version is just 3FPS faster than without. However, when we get to larger scenes with 150k triangles, we can see that the program without BVH becomes unresponsive at 0FPS. However, with BVH, it was still able to do a great job at 4.3FPS.
+
+These results kind of show that it is very fundamental requirement to render a scene of non-trivial complexity.
 
 ### File Texture vs. Procedural Texture
 
