@@ -2,6 +2,10 @@
 
 **University of Pennsylvania, CIS 565: GPU Programming and Architecture, Project 3**
 
+<p align="center">
+  <img src="img/hero.png" alt="Hero image"/>
+</p>
+
 - Jacqueline Guan
   - [LinkedIn](https://www.linkedin.com/in/jackie-guan/)
   - [Personal website](https://jyguan18.github.io/)
